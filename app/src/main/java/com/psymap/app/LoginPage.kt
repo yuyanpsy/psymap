@@ -43,7 +43,7 @@ fun LoginPage(vm: PsyMapViewModel) {
                 WeChatLogin.getAccessToken(code,
                     onResult = { nickname, openId, avatarUrl ->
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            vm.loginAsNormalUser(nickname, openId)
+                            vm.loginAsNormalUser(nickname, openId, avatarUrl)
                             wechatLoading = false
                         }
                     },

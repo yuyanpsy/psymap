@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -26,7 +27,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.*
-import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -218,9 +220,9 @@ fun CountdownCard(vm: PsyMapViewModel) {
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("连续打卡", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp)
-                    Text("${vm.currentUser.consecutiveCheckInDays}天", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("${vm.consecutiveCheckedDays}天", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("累计 ${vm.currentUser.totalCheckInDays} 天", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
+                    Text("累计 ${vm.totalCheckedDays} 天", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
                 }
             }
         }
@@ -384,24 +386,38 @@ fun StatsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     )
 }
 
-// ==================== 打卡日历弹窗 ====================
+// ==================== 打卡日历弹窗（支持切换月份） ====================
 @Composable
 fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    val cal = Calendar.getInstance()
-    val currentMonth = cal.get(Calendar.MONTH)
-    val currentYear = cal.get(Calendar.YEAR)
-    val todayDay = cal.get(Calendar.DAY_OF_MONTH)
-    cal.set(Calendar.DAY_OF_MONTH, 1)
-    val firstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK) - 1
-    val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+    var displayMonth by remember { mutableStateOf(Calendar.getInstance().get(Calendar.MONTH)) }
+    var displayYear by remember { mutableStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
+    val todayCal = Calendar.getInstance()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${currentYear}年${currentMonth + 1}月 打卡日历") },
+        title = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = {
+                    if (displayMonth == 0) { displayMonth = 11; displayYear-- } else displayMonth--
+                }) { Icon(Icons.Default.ChevronLeft, contentDescription = "上月") }
+                Text("${displayYear}年${displayMonth + 1}月", fontWeight = FontWeight.Bold)
+                IconButton(onClick = {
+                    if (displayMonth == 11) { displayMonth = 0; displayYear++ } else displayMonth++
+                }) { Icon(Icons.Default.ChevronRight, contentDescription = "下月") }
+            }
+        },
         text = {
             Column {
+                val cal = Calendar.getInstance().apply { set(displayYear, displayMonth, 1) }
+                val firstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK) - 1
+                val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                val isCurrentMonth = displayYear == todayCal.get(Calendar.YEAR) && displayMonth == todayCal.get(Calendar.MONTH)
+                val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
+
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    listOf("日","一","二","三","四","五","六").forEach { Text(it, fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.width(32.dp)) }
+                    listOf("日","一","二","三","四","五","六").forEach {
+                        Text(it, fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.width(32.dp))
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 var day = 1
@@ -412,29 +428,40 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             if ((week == 0 && dow < firstDayOfWeek) || day > daysInMonth) {
                                 Box(Modifier.size(32.dp))
                             } else {
-                                val dateStr = String.format("%04d-%02d-%02d", currentYear, currentMonth + 1, day)
+                                val dateStr = String.format("%04d-%02d-%02d", displayYear, displayMonth + 1, day)
                                 val dayRecord = vm.checkInRecords.find { it.date == dateStr }
                                 val isChecked = dayRecord != null && vm.isDayCheckedIn(dayRecord)
                                 val hasActivity = dayRecord != null && !isChecked && dayRecord.completedCount > 0
-                                val isPast = day < todayDay
+                                val isPast = if (isCurrentMonth) day < todayDay else displayYear < todayCal.get(Calendar.YEAR) || (displayYear == todayCal.get(Calendar.YEAR) && displayMonth < todayCal.get(Calendar.MONTH))
+                                val isToday = isCurrentMonth && day == todayDay
                                 val bgColor = when {
-                                    isChecked -> Color(0xFF4CAF50)  // 绿色：已完成打卡
-                                    hasActivity -> Color(0xFFFF9800) // 橙色：有练习但未完成
-                                    isPast -> Color(0xFFEEEEEE)     // 灰色：过去未打卡
+                                    isChecked -> Color(0xFF4CAF50)
+                                    hasActivity -> Color(0xFFFF9800)
+                                    isPast -> Color(0xFFEEEEEE)
                                     else -> Color.Transparent
                                 }
                                 Box(modifier = Modifier.size(32.dp)
-                                    .background(bgColor, CircleShape),
+                                    .background(bgColor, CircleShape)
+                                    .then(if (isToday) Modifier.border(2.dp, Color(0xFFEF6C00), CircleShape) else Modifier),
                                     contentAlignment = Alignment.Center) {
                                     Text("$day", fontSize = 12.sp,
-                                        color = if (isChecked) Color.White else if (hasActivity) Color.White else Color.Black)
+                                        color = if (isChecked || hasActivity) Color.White else Color.Black,
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal)
                                 }
                                 day++
                             }
                         }
                     }
                 }
+
+                // 本月统计
                 Spacer(Modifier.height(8.dp))
+                val monthPrefix = String.format("%04d-%02d", displayYear, displayMonth + 1)
+                val monthRecords = vm.checkInRecords.filter { it.date.startsWith(monthPrefix) }
+                val checkedCount = monthRecords.count { vm.isDayCheckedIn(it) }
+                Text("本月打卡 $checkedCount 天", fontSize = 13.sp, color = Color.Gray)
+
+                Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(12.dp).background(Color(0xFF4CAF50), CircleShape))
@@ -932,70 +959,70 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     val bankName = bank?.name ?: "题库"
 
                     scope.launch(Dispatchers.Main) {
-                        var ttsEngine: android.speech.tts.TextToSpeech? = null
-                        var ttsReady = false
-
-                        ttsEngine = android.speech.tts.TextToSpeech(context) { status ->
-                            ttsReady = (status == android.speech.tts.TextToSpeech.SUCCESS)
+                        // TTS 初始化
+                        val ttsDeferred = CompletableDeferred<android.speech.tts.TextToSpeech?>()
+                        val tts = android.speech.tts.TextToSpeech(context) { status ->
+                            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                                ttsDeferred.complete(android.speech.tts.TextToSpeech(context, null))
+                            } else {
+                                ttsDeferred.complete(null)
+                            }
+                        }
+                        // 不用 delay 轮询，直接 await deferred（回调会在主线程执行）
+                        val ttsEngine = withTimeoutOrNull(8000) { ttsDeferred.await() } ?: tts.also {
+                            // 超时了，直接用第一个实例试试
+                            null
                         }
 
-                        // 等待初始化
-                        var waitMs = 0
-                        while (!ttsReady && waitMs < 5000) {
-                            delay(100)
-                            waitMs += 100
+                        // 简化：直接用 tts 实例，不管回调
+                        tts.language = java.util.Locale.CHINESE
+                        tts.setSpeechRate(0.9f)
+
+                        val fullText = StringBuilder()
+                        selected.forEachIndexed { idx, q ->
+                            fullText.append("第${idx + 1}题。${q.content}。答案：${q.answer}。")
                         }
 
-                        if (!ttsReady || ttsEngine == null) {
+                        if (fullText.isEmpty()) {
                             isGenerating = false; progress = ""
-                            Toast.makeText(context, "语音引擎初始化失败，请检查系统TTS设置", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "没有题目内容", Toast.LENGTH_SHORT).show()
+                            tts.shutdown()
                             return@launch
                         }
 
-                        ttsEngine.language = java.util.Locale.CHINESE
                         val dir = java.io.File(context.getExternalFilesDir(null), "audio")
                         dir.mkdirs()
+                        val fileName = "${bankName}_${cnt}q.wav"
+                        val file = java.io.File(dir, fileName)
 
-                        val segments = mutableListOf<String>()
-                        val current = StringBuilder()
-                        selected.forEachIndexed { idx, q ->
-                            val text = "第${idx + 1}题。${q.content}。答案：${q.answer}。"
-                            if (current.length + text.length > 1500 && current.isNotEmpty()) {
-                                segments.add(current.toString()); current.clear()
-                            }
-                            current.append(text)
-                        }
-                        if (current.isNotEmpty()) segments.add(current.toString())
+                        progress = "正在生成音频..."
 
-                        var allSuccess = true
-                        for ((idx, seg) in segments.withIndex()) {
-                            progress = "正在生成 ${idx + 1}/${segments.size}..."
+                        val done = CompletableDeferred<Boolean>()
+                        tts.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) { }
+                            override fun onDone(utteranceId: String?) { done.complete(true) }
+                            @Deprecated("Deprecated") override fun onError(utteranceId: String?) { done.complete(false) }
+                        })
 
-                            val fileName = "${bankName}_${cnt}q_${idx + 1}.wav"
-                            val file = java.io.File(dir, fileName)
-
-                            val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
-                            ttsEngine.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-                                override fun onStart(utteranceId: String?) {}
-                                override fun onDone(utteranceId: String?) { done.complete(true) }
-                                override fun onError(utteranceId: String?) { done.complete(false) }
-                            })
-
-                            val result = ttsEngine.synthesizeToFile(seg, null, file, "psymap_$idx")
-                            if (result != android.speech.tts.TextToSpeech.SUCCESS) {
-                                allSuccess = false
-                            } else {
-                                val ok = withTimeoutOrNull(60000) { done.await() }
-                                if (ok != true) allSuccess = false
-                            }
+                        // 先尝试写文件
+                        var useSpeak = false
+                        val writeResult = tts.synthesizeToFile(fullText.toString(), null, file, "psymap_tts")
+                        if (writeResult != android.speech.tts.TextToSpeech.SUCCESS) {
+                            useSpeak = true
+                            progress = "正在朗读..."
+                            tts.speak(fullText.toString(), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "psymap_speak")
                         }
 
-                        ttsEngine.shutdown()
+                        withTimeoutOrNull(300000) { done.await() }
+
+                        tts.shutdown()
                         isGenerating = false; progress = ""
+
+                        val saved = file.exists() && file.length() > 100
                         Toast.makeText(context,
-                            if (allSuccess) "音频生成完成！共${segments.size}个文件" else "部分音频生成失败",
+                            if (saved) "音频生成完成！" else if (useSpeak) "朗读完成" else "请在磨耳朵中导入本地音频",
                             Toast.LENGTH_LONG).show()
-                        if (allSuccess) onDismiss()
+                        onDismiss()
                     }
                 },
                 enabled = !isGenerating && selectedBankId.isNotBlank()
@@ -1009,29 +1036,48 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 @Composable
 fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val audioDir = remember { java.io.File(context.getExternalFilesDir(null), "audio") }
-    val audioFiles = remember { audioDir.listFiles()?.filter { it.extension == "wav" }?.sortedBy { it.name } ?: emptyList() }
+    val audioDir = remember { java.io.File(context.getExternalFilesDir(null), "audio").apply { mkdirs() } }
+    var audioFiles by remember { mutableStateOf(audioDir.listFiles()?.filter { it.extension in listOf("wav", "mp3", "ogg") }?.sortedBy { it.name }?.toList() ?: emptyList()) }
     var selectedFiles by remember { mutableStateOf(setOf<String>()) }
     var isPlaying by remember { mutableStateOf(false) }
     var currentPlaying by remember { mutableStateOf("") }
     var mediaPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+
+    // 本地文件选择器
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        uris.forEach { uri ->
+            try {
+                val name = uri.lastPathSegment?.substringAfterLast("/") ?: "audio_${System.currentTimeMillis()}.mp3"
+                val dest = java.io.File(audioDir, name)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) {}
+        }
+        // 刷新文件列表
+        audioFiles = audioDir.listFiles()?.filter { it.extension in listOf("wav", "mp3", "ogg") }?.sortedBy { it.name }?.toList() ?: emptyList()
+    }
 
     DisposableEffect(Unit) {
         onDispose { mediaPlayer?.release() }
     }
 
     AlertDialog(
-        onDismissRequest = {
-            mediaPlayer?.release()
-            onDismiss()
+        onDismissRequest = { mediaPlayer?.release(); onDismiss() },
+        title = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("磨耳朵")
+                TextButton(onClick = { filePicker.launch(arrayOf("audio/*")) }) {
+                    Text("+ 导入音频", fontSize = 13.sp)
+                }
+            }
         },
-        title = { Text("磨耳朵") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (audioFiles.isEmpty()) {
-                    Text("暂无音频文件\n请先使用「制作音频」生成题目音频", color = Color.Gray, fontSize = 14.sp)
+                    Text("暂无音频文件\n• 使用「制作音频」生成题目音频\n• 或点击右上角「导入音频」选择本地文件", color = Color.Gray, fontSize = 14.sp)
                 } else {
-                    Text("选择要播放的音频文件", fontSize = 13.sp, color = Color.Gray)
+                    Text("选择要播放的音频文件 (${audioFiles.size}个)", fontSize = 13.sp, color = Color.Gray)
                     Spacer(Modifier.height(8.dp))
                     audioFiles.forEach { file ->
                         Row(modifier = Modifier.fillMaxWidth().clickable {
@@ -1062,28 +1108,19 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 Button(
                     onClick = {
                         if (isPlaying) {
-                            mediaPlayer?.stop()
-                            mediaPlayer?.release()
-                            mediaPlayer = null
-                            isPlaying = false
-                            currentPlaying = ""
+                            mediaPlayer?.stop(); mediaPlayer?.release(); mediaPlayer = null
+                            isPlaying = false; currentPlaying = ""
                         } else {
                             val filesToPlay = audioFiles.filter { it.name in selectedFiles }
                             if (filesToPlay.isEmpty()) return@Button
                             isPlaying = true
-                            // 播放第一个文件
                             fun playNext(index: Int) {
-                                if (index >= filesToPlay.size) {
-                                    isPlaying = false
-                                    currentPlaying = ""
-                                    return
-                                }
+                                if (index >= filesToPlay.size) { isPlaying = false; currentPlaying = ""; return }
                                 currentPlaying = filesToPlay[index].nameWithoutExtension
                                 mediaPlayer?.release()
                                 mediaPlayer = android.media.MediaPlayer().apply {
                                     setDataSource(filesToPlay[index].absolutePath)
-                                    prepare()
-                                    start()
+                                    prepare(); start()
                                     setOnCompletionListener { playNext(index + 1) }
                                 }
                             }
@@ -1094,11 +1131,6 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 ) { Text(if (isPlaying) "⏹ 停止" else "▶ 播放") }
             }
         },
-        dismissButton = {
-            TextButton(onClick = {
-                mediaPlayer?.release()
-                onDismiss()
-            }) { Text("关闭") }
-        }
+        dismissButton = { TextButton(onClick = { mediaPlayer?.release(); onDismiss() }) { Text("关闭") } }
     )
 }

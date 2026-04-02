@@ -131,6 +131,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         updateTodayCheckIn()
+        refreshCheckInStats()
     }
 
     fun saveApiConfig() {
@@ -437,12 +438,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         recordBankProgress(currentBankId, 0) // 触发刷新
     }
 
-    /** 判断某天是否完成打卡（所有有目标的题库都达标） */
+    /** 判断某天是否完成打卡（当天有任何练习记录即算打卡） */
     fun isDayCheckedIn(checkIn: DailyCheckIn): Boolean {
-        if (dailyTargets.isEmpty()) return checkIn.completedCount > 0
-        return dailyTargets.all { (bankId, target) ->
-            target <= 0 || (checkIn.bankProgress[bankId] ?: 0) >= target
-        }
+        return checkIn.completedCount > 0
     }
 
     /** 刷新打卡统计（总天数、连续天数） */
@@ -771,16 +769,20 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         saveUser()
     }
 
-    fun loginAsNormalUser(nickname: String, openId: String = "") {
-        // 所有微信登录用户都赋予管理员权限
+    fun loginAsNormalUser(nickname: String, openId: String = "", avatarUrl: String = "") {
         currentUser = User(
             nickname = nickname,
             role = UserRole.ADMIN,
-            wechatOpenId = openId
+            wechatOpenId = openId,
+            avatarUrl = avatarUrl
         )
         isLoggedIn = true
         saveUser()
     }
 
     val isAdmin: Boolean get() = currentUser.role == UserRole.ADMIN
+
+    // 实时计算打卡天数（不依赖 currentUser 缓存）
+    val totalCheckedDays: Int get() = checkInRecords.count { isDayCheckedIn(it) }
+    val consecutiveCheckedDays: Int get() = calculateConsecutiveDays()
 }

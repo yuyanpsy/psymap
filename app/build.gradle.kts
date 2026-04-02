@@ -12,8 +12,8 @@ android {
         applicationId = "com.psymap.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "0.0.2"
     }
 
     buildTypes {
@@ -59,6 +59,9 @@ dependencies {
 
     // 微信登录 SDK
     implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.28")
+
+    // 网络图片加载
+    implementation("io.coil-kt:coil-compose:2.5.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

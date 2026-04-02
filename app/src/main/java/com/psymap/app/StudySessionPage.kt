@@ -75,16 +75,12 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                     onClick = {},
                     label = { Text(question.type.label, fontSize = 11.sp) }
                 )
-                FilterChip(
-                    selected = question.isFrequent,
-                    onClick = { vm.toggleFrequent(question.id) },
-                    label = { Text("🔥常考", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = question.isMemorize,
-                    onClick = { vm.toggleMemorize(question.id) },
-                    label = { Text("📖多背", fontSize = 11.sp) }
-                )
+                if (question.isFrequent) {
+                    AssistChip(onClick = {}, label = { Text("🔥常考", fontSize = 11.sp) })
+                }
+                if (question.isMemorize) {
+                    AssistChip(onClick = {}, label = { Text("📖多背", fontSize = 11.sp) })
+                }
                 if (question.chapter.isNotBlank()) {
                     AssistChip(
                         onClick = {},
