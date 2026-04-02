@@ -62,7 +62,8 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     )
                     .padding(24.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { showAccountInfo = true }) {
                     // 头像（支持微信头像）
                     if (vm.currentUser.avatarUrl.isNotBlank()) {
                         AsyncImage(
@@ -315,7 +316,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.0.2", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v0.0.3", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -338,7 +339,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 val tagName = map["tag_name"] as? String ?: ""
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     checking = false
-                                    if (tagName.isNotBlank() && tagName != "v0.0.2") {
+                                    if (tagName.isNotBlank() && tagName != "v0.0.3") {
                                         updateMsg = "发现新版本: $tagName"
                                         // 打开下载页面
                                         val browserUrl = map["html_url"] as? String ?: "https://github.com/yuyanpsy/psymap/releases"
