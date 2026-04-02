@@ -329,21 +329,26 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = {
                         checking = true; updateMsg = ""
-                        // 从 GitHub Releases 检查更新
+                        // 从 GitHub Pages 检查版本信息（不受 API 限流影响）
                         Thread {
                             try {
-                                val url = "https://api.github.com/repos/yuyanpsy/psymap/releases/latest"
-                                val resp = okhttp3.OkHttpClient().newCall(okhttp3.Request.Builder().url(url).build()).execute()
+                                val url = "https://yuyanpsy.github.io/psymap/version.json"
+                                val resp = okhttp3.OkHttpClient.Builder()
+                                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                                    .build()
+                                    .newCall(okhttp3.Request.Builder().url(url).build()).execute()
                                 val json = resp.body?.string() ?: ""
                                 val map = com.google.gson.Gson().fromJson<Map<String, Any>>(json, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
-                                val tagName = map["tag_name"] as? String ?: ""
+                                val latestVersion = map["version"] as? String ?: ""
+                                val downloadUrl = map["url"] as? String ?: ""
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     checking = false
-                                    if (tagName.isNotBlank() && tagName != "v0.0.3") {
-                                        updateMsg = "发现新版本: $tagName"
-                                        // 打开下载页面
-                                        val browserUrl = map["html_url"] as? String ?: "https://github.com/yuyanpsy/psymap/releases"
-                                        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(browserUrl)))
+                                    if (latestVersion.isNotBlank() && latestVersion != "0.0.3") {
+                                        updateMsg = "发现新版本: v$latestVersion"
+                                        if (downloadUrl.isNotBlank()) {
+                                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl)))
+                                        }
                                     } else {
                                         updateMsg = "已是最新版本"
                                     }
