@@ -1013,14 +1013,21 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             tts.speak(fullText.toString(), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "psymap_speak")
                         }
 
-                        withTimeoutOrNull(300000) { done.await() }
+                        // 等待完成：用超时而不是依赖回调（小米TTS回调不可靠）
+                        val estimatedMs = (fullText.length * 200L).coerceIn(5000, 120000) // 每字约200ms
+                        val result = withTimeoutOrNull(estimatedMs) { done.await() }
+                        if (result == null) {
+                            // 超时了，但朗读可能还在进行，等额外2秒后强制结束
+                            delay(2000)
+                        }
 
+                        tts.stop()
                         tts.shutdown()
                         isGenerating = false; progress = ""
 
                         val saved = file.exists() && file.length() > 100
                         Toast.makeText(context,
-                            if (saved) "音频生成完成！" else if (useSpeak) "朗读完成" else "请在磨耳朵中导入本地音频",
+                            if (saved) "音频生成完成！" else if (useSpeak) "朗读完成" else "完成",
                             Toast.LENGTH_LONG).show()
                         onDismiss()
                     }

@@ -210,10 +210,6 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         restoreFilePicker.launch(arrayOf("application/json", "*/*"))
                     }
                     HorizontalDivider(color = Color(0xFFF0F0F0))
-                    ProfileMenuItem(Icons.Default.AccountCircle, "登录账号") {
-                        showAccountInfo = true
-                    }
-                    HorizontalDivider(color = Color(0xFFF0F0F0))
                     ProfileMenuItem(Icons.Default.Info, "版本信息") {
                         showVersionInfo = true
                     }
@@ -316,7 +312,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.0.3", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v0.0.4", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -332,7 +328,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         // 从 GitHub Pages 检查版本信息（不受 API 限流影响）
                         Thread {
                             try {
-                                val url = "https://yuyanpsy.github.io/psymap/version.json"
+                                val url = "https://raw.githubusercontent.com/yuyanpsy/psymap/main/version.json"
                                 val resp = okhttp3.OkHttpClient.Builder()
                                     .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                                     .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
