@@ -978,9 +978,9 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         var apiSuccess = false
                         try {
                             val body = com.google.gson.Gson().toJson(mapOf(
-                                "model" to "fishaudio/fish-speech-1.5",
+                                "model" to "FunAudioLLM/CosyVoice2-0.5B",
                                 "input" to fullText.toString().take(5000),
-                                "voice" to "fishaudio/fish-speech-1.5:anna",
+                                "voice" to "FunAudioLLM/CosyVoice2-0.5B:alex",
                                 "response_format" to "mp3"
                             ))
                             val response = okhttp3.OkHttpClient.Builder()

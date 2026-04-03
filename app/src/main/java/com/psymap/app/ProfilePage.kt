@@ -312,7 +312,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.0.5", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v0.0.6", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)

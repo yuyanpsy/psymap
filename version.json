@@ -1,5 +1,5 @@
 {
-  "version": "0.0.4",
-  "url": "https://github.com/yuyanpsy/psymap/releases/tag/v0.0.4",
-  "description": "修复制作音频功能"
+  "version": "0.0.6",
+  "url": "https://github.com/yuyanpsy/psymap/releases/tag/v0.0.6",
+  "description": "修复音频制作-使用CosyVoice2模型"
 }
