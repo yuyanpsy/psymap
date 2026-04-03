@@ -958,78 +958,81 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     val bank = vm.questionBanks.find { it.id == selectedBankId }
                     val bankName = bank?.name ?: "题库"
 
-                    scope.launch(Dispatchers.Main) {
-                        // TTS 初始化
-                        val ttsDeferred = CompletableDeferred<android.speech.tts.TextToSpeech?>()
-                        val tts = android.speech.tts.TextToSpeech(context) { status ->
-                            if (status == android.speech.tts.TextToSpeech.SUCCESS) {
-                                ttsDeferred.complete(android.speech.tts.TextToSpeech(context, null))
-                            } else {
-                                ttsDeferred.complete(null)
-                            }
-                        }
-                        // 不用 delay 轮询，直接 await deferred（回调会在主线程执行）
-                        val ttsEngine = withTimeoutOrNull(8000) { ttsDeferred.await() } ?: tts.also {
-                            // 超时了，直接用第一个实例试试
-                            null
-                        }
-
-                        // 简化：直接用 tts 实例，不管回调
-                        tts.language = java.util.Locale.CHINESE
-                        tts.setSpeechRate(0.9f)
-
+                    scope.launch(Dispatchers.IO) {
                         val fullText = StringBuilder()
                         selected.forEachIndexed { idx, q ->
                             fullText.append("第${idx + 1}题。${q.content}。答案：${q.answer}。")
                         }
-
                         if (fullText.isEmpty()) {
-                            isGenerating = false; progress = ""
-                            Toast.makeText(context, "没有题目内容", Toast.LENGTH_SHORT).show()
-                            tts.shutdown()
+                            withContext(Dispatchers.Main) { isGenerating = false; progress = "" }
                             return@launch
                         }
 
                         val dir = java.io.File(context.getExternalFilesDir(null), "audio")
                         dir.mkdirs()
-                        val fileName = "${bankName}_${cnt}q.wav"
+                        val fileName = "${bankName}_${cnt}q.mp3"
                         val file = java.io.File(dir, fileName)
 
-                        progress = "正在生成音频..."
+                        // 方案1: 尝试 SiliconFlow TTS API
+                        withContext(Dispatchers.Main) { progress = "正在生成音频..." }
+                        var apiSuccess = false
+                        try {
+                            val body = com.google.gson.Gson().toJson(mapOf(
+                                "model" to "fishaudio/fish-speech-1.5",
+                                "input" to fullText.toString().take(5000),
+                                "voice" to "fishaudio/fish-speech-1.5:anna",
+                                "response_format" to "mp3"
+                            ))
+                            val response = okhttp3.OkHttpClient.Builder()
+                                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                                .build()
+                                .newCall(okhttp3.Request.Builder()
+                                    .url("${AiService.apiBaseUrl}/audio/speech")
+                                    .addHeader("Authorization", "Bearer ${AiService.apiKey}")
+                                    .addHeader("Content-Type", "application/json")
+                                    .post(body.toRequestBody("application/json".toMediaType()))
+                                    .build()).execute()
+                            if (response.isSuccessful && response.body != null) {
+                                response.body!!.byteStream().use { input ->
+                                    file.outputStream().use { output -> input.copyTo(output) }
+                                }
+                                apiSuccess = file.length() > 100
+                            }
+                        } catch (_: Exception) {}
 
-                        val done = CompletableDeferred<Boolean>()
-                        tts.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-                            override fun onStart(utteranceId: String?) { }
-                            override fun onDone(utteranceId: String?) { done.complete(true) }
-                            @Deprecated("Deprecated") override fun onError(utteranceId: String?) { done.complete(false) }
-                        })
-
-                        // 先尝试写文件
-                        var useSpeak = false
-                        val writeResult = tts.synthesizeToFile(fullText.toString(), null, file, "psymap_tts")
-                        if (writeResult != android.speech.tts.TextToSpeech.SUCCESS) {
-                            useSpeak = true
-                            progress = "正在朗读..."
-                            tts.speak(fullText.toString(), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "psymap_speak")
+                        if (apiSuccess) {
+                            withContext(Dispatchers.Main) {
+                                isGenerating = false; progress = ""
+                                Toast.makeText(context, "音频生成完成！可在磨耳朵中播放", Toast.LENGTH_LONG).show()
+                                onDismiss()
+                            }
+                            return@launch
                         }
 
-                        // 等待完成：用超时而不是依赖回调（小米TTS回调不可靠）
-                        val estimatedMs = (fullText.length * 200L).coerceIn(5000, 120000) // 每字约200ms
-                        val result = withTimeoutOrNull(estimatedMs) { done.await() }
-                        if (result == null) {
-                            // 超时了，但朗读可能还在进行，等额外2秒后强制结束
+                        // 方案2: 系统 TTS 实时朗读（不保存文件）
+                        withContext(Dispatchers.Main) {
+                            progress = "API不可用，使用系统朗读..."
+                            val tts = android.speech.tts.TextToSpeech(context) { status ->
+                                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                                    // 初始化成功后开始朗读
+                                }
+                            }
+                            // 等待初始化
                             delay(2000)
+                            tts.language = java.util.Locale.CHINESE
+                            tts.setSpeechRate(0.9f)
+                            tts.speak(fullText.toString(), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "psymap")
+
+                            // 估算朗读时间后自动结束
+                            val estimatedMs = (fullText.length * 250L).coerceIn(5000, 180000)
+                            delay(estimatedMs)
+                            tts.stop()
+                            tts.shutdown()
+                            isGenerating = false; progress = ""
+                            Toast.makeText(context, "朗读完成", Toast.LENGTH_SHORT).show()
+                            onDismiss()
                         }
-
-                        tts.stop()
-                        tts.shutdown()
-                        isGenerating = false; progress = ""
-
-                        val saved = file.exists() && file.length() > 100
-                        Toast.makeText(context,
-                            if (saved) "音频生成完成！" else if (useSpeak) "朗读完成" else "完成",
-                            Toast.LENGTH_LONG).show()
-                        onDismiss()
                     }
                 },
                 enabled = !isGenerating && selectedBankId.isNotBlank()
