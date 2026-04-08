@@ -198,7 +198,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(android.content.Intent.EXTRA_SUBJECT, "羽言心理 - 学习神器")
-                            putExtra(android.content.Intent.EXTRA_TEXT, "推荐你使用「羽言心理」App！\n新知 · 成长 · 快乐\n下载地址: https://yuyanpsy.github.io/psymap")
+                            putExtra(android.content.Intent.EXTRA_TEXT, "推荐你使用「羽言心理」App！\n新知 · 成长 · 快乐\n下载地址: https://github.com/yuyanpsy/psymap/releases")
                         }
                         context.startActivity(android.content.Intent.createChooser(intent, "分享App"))
                     }
@@ -313,7 +313,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.0.6", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v0.0.7", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -337,11 +337,12 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                     .newCall(okhttp3.Request.Builder().url(url).build()).execute()
                                 val json = resp.body?.string() ?: ""
                                 val map = com.google.gson.Gson().fromJson<Map<String, Any>>(json, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
-                                val latestVersion = map["version"] as? String ?: ""
-                                val downloadUrl = map["url"] as? String ?: ""
+                                val latestVersion = (map["versionName"] as? String) ?: (map["version"] as? String) ?: ""
+                                val downloadUrl = (map["downloadUrl"] as? String) ?: (map["url"] as? String) ?: ""
+                                val currentVersion = "0.0.7"
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     checking = false
-                                    if (latestVersion.isNotBlank() && latestVersion != "0.0.3") {
+                                    if (latestVersion.isNotBlank() && latestVersion != currentVersion) {
                                         updateMsg = "发现新版本: v$latestVersion"
                                         if (downloadUrl.isNotBlank()) {
                                             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl)))
