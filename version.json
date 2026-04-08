@@ -1,5 +1,6 @@
 {
-  "version": "0.0.6",
-  "url": "https://github.com/yuyanpsy/psymap/releases/tag/v0.0.6",
-  "description": "修复音频制作-使用CosyVoice2模型"
+  "versionCode": 7,
+  "versionName": "0.0.7",
+  "downloadUrl": "https://github.com/yuyanpsy/psymap/releases/download/v0.0.7/app-debug.apk",
+  "changelog": "全屏页面重构、MIUI风格优化、心理学知识/英文泛读增强、AI判卷/答案生成、Markdown渲染支持"
 }
