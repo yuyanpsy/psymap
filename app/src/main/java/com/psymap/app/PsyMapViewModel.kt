@@ -66,7 +66,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     val targetTotalScore: Int get() = targetPoliticsScore + targetEnglishScore + targetPsyScore
 
     // 考研倒计时
-    val examDate = "2026-12-26"
+    val examDate = "2026-12-19"
     val daysUntilExam: Int
         get() {
             return try {

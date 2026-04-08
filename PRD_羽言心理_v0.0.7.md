@@ -226,7 +226,7 @@
 | 菜单 | 功能 |
 |------|------|
 | 分享题库 | 调用系统分享，分享给微信联系人 |
-| 分享APP | 分享下载链接 |
+| 分享APP | 分享GitHub Releases下载链接：https://github.com/yuyanpsy/psymap/releases |
 | 数据备份 | 备份到Downloads/psymap_backup.json |
 | 数据恢复 | 从Downloads或文件选择器恢复 |
 | 版本信息 | 显示版本号、检查更新 |
@@ -257,9 +257,34 @@
 
 ## 十一、版本更新
 
-- 版本检查：从 `https://raw.githubusercontent.com/yuyanpsy/psymap/main/version.json` 获取
-- 下载页面：`https://yuyanpsy.github.io/psymap`
-- GitHub Release：`https://github.com/yuyanpsy/psymap/releases`
+### 11.1 版本检查机制
+- 版本检查：从 `https://raw.githubusercontent.com/yuyanpsy/psymap/main/version.json` 获取最新版本信息
+- 比较逻辑：将远程 `versionName` 与当前内置版本号对比，不同则提示更新
+- 点击更新后自动跳转浏览器下载 APK
+
+### 11.2 version.json 格式
+```json
+{
+  "versionCode": 7,
+  "versionName": "0.0.7",
+  "downloadUrl": "https://github.com/yuyanpsy/psymap/releases/download/v0.0.7/app-debug.apk",
+  "changelog": "更新说明"
+}
+```
+> 字段说明：`versionName`（版本号）、`downloadUrl`（APK下载直链）、`versionCode`（版本序号）、`changelog`（更新日志）
+
+### 11.3 发布流程
+1. 修改 `build.gradle.kts` 中 `versionCode` 和 `versionName`
+2. 修改 `ProfilePage.kt` 中硬编码的 `currentVersion` 和显示版本号
+3. 编译 APK：`./gradlew assembleDebug`
+4. 更新根目录 `version.json`
+5. 推送代码到 GitHub：`git push origin main --tags`
+6. 在 GitHub Releases 页面创建新 release，上传 `app-debug.apk` 到 Assets
+7. Release 页面：`https://github.com/yuyanpsy/psymap/releases`
+
+### 11.4 分享下载链接
+- 分享App功能使用链接：`https://github.com/yuyanpsy/psymap/releases`
+- GitHub Pages 页面（备用）：`https://yuyanpsy.github.io/psymap`（需在 repo Settings > Pages 中启用）
 
 ---
 
