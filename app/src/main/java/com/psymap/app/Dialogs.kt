@@ -474,6 +474,7 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
 
 // ==================== 题目详情/编辑弹窗 ====================
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var isEditing by remember { mutableStateOf(false) }
@@ -485,25 +486,39 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
     // 从 vm 实时获取最新的 question 状态
     val liveQuestion = vm.questions.find { it.id == question.id } ?: question
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isEditing) "编辑题目" else "题目详情", fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                if (vm.isAdmin && !isEditing) {
-                    IconButton(onClick = { isEditing = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(20.dp))
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(if (isEditing) "编辑题目" else "题目详情", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        if (vm.isAdmin && !isEditing) {
+                            IconButton(onClick = { isEditing = true }) {
+                                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(20.dp))
+                            }
+                        }
                     }
-                }
+                )
             }
-        },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
                 // 第一行：题目类型（可点击切换）
                 Text("题目类型", fontSize = 11.sp, color = Color.Gray)
                 Spacer(Modifier.height(4.dp))
-                @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -522,7 +537,6 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                 // 第二行：标签（常考/多背 可切换，收藏/错题 只读）
                 Text("标签", fontSize = 11.sp, color = Color.Gray)
                 Spacer(Modifier.height(4.dp))
-                @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilterChip(selected = liveQuestion.isFrequent,
                         onClick = { vm.toggleFrequent(question.id) },
@@ -546,27 +560,43 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                 Spacer(Modifier.height(12.dp))
 
                 if (isEditing) {
+                    val isChoiceType = liveQuestion.type == QuestionType.SINGLE_CHOICE || liveQuestion.type == QuestionType.MULTI_CHOICE
+
                     OutlinedTextField(value = editContent, onValueChange = { editContent = it },
                         label = { Text("题目内容") }, modifier = Modifier.fillMaxWidth(), maxLines = 8)
                     Spacer(Modifier.height(8.dp))
-                    if (liveQuestion.options.isNotEmpty()) {
+                    if (isChoiceType || editOptions.isNotBlank()) {
                         OutlinedTextField(value = editOptions, onValueChange = { editOptions = it },
-                            label = { Text("选项（每行一个）") }, modifier = Modifier.fillMaxWidth(), maxLines = 6)
+                            label = { Text("选项（每行一个，如 A.选项内容）") }, modifier = Modifier.fillMaxWidth(), maxLines = 6,
+                            placeholder = { Text("A.选项1\nB.选项2\nC.选项3\nD.选项4") })
                         Spacer(Modifier.height(8.dp))
                     }
                     OutlinedTextField(value = editAnswer, onValueChange = { editAnswer = it },
-                        label = { Text("答案") }, modifier = Modifier.fillMaxWidth(), maxLines = 8)
+                        label = { Text(if (isChoiceType) "正确答案（如 A）" else "答案") }, modifier = Modifier.fillMaxWidth(), maxLines = 8)
+
+                    Spacer(Modifier.height(16.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { isEditing = false }) { Text("取消") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            val opts = if (isChoiceType || editOptions.isNotBlank())
+                                editOptions.lines().filter { it.isNotBlank() } else emptyList()
+                            vm.updateQuestion(question.id, editContent, editAnswer, opts)
+                            isEditing = false
+                            onDismiss()
+                        }) { Text("保存") }
+                    }
                 } else {
                     Text("题目", fontSize = 12.sp, color = Color.Gray)
                     Spacer(Modifier.height(4.dp))
-                    Text(liveQuestion.content, fontSize = 15.sp, lineHeight = 22.sp)
+                    SimpleMarkdownText(liveQuestion.content)
 
                     if (liveQuestion.options.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Text("选项", fontSize = 12.sp, color = Color.Gray)
                         Spacer(Modifier.height(4.dp))
                         liveQuestion.options.forEachIndexed { i, opt ->
-                            Text("${('A' + i)}. $opt", fontSize = 14.sp, modifier = Modifier.padding(vertical = 2.dp))
+                            Text(text = renderInlineMarkdown("${('A' + i)}. $opt"), fontSize = 14.sp, modifier = Modifier.padding(vertical = 2.dp))
                         }
                     }
 
@@ -574,7 +604,9 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                     Text("答案", fontSize = 12.sp, color = Color.Gray)
                     Spacer(Modifier.height(4.dp))
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))) {
-                        Text(liveQuestion.answer, fontSize = 14.sp, modifier = Modifier.padding(12.dp), lineHeight = 20.sp)
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            SimpleMarkdownText(liveQuestion.answer)
+                        }
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -588,24 +620,8 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                     }
                 }
             }
-        },
-        confirmButton = {
-            if (isEditing) {
-                Button(onClick = {
-                    vm.updateQuestion(question.id, editContent, editAnswer)
-                    isEditing = false
-                    onDismiss()
-                }) { Text("保存") }
-            } else {
-                TextButton(onClick = onDismiss) { Text("关闭") }
-            }
-        },
-        dismissButton = {
-            if (isEditing) {
-                TextButton(onClick = { isEditing = false }) { Text("取消") }
-            }
         }
-    )
+    }
 }
 
 // ==================== 添加题目弹窗 ====================
@@ -684,7 +700,7 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
                     }
                     onDismiss()
                 },
-                enabled = content.isNotBlank() && answer.isNotBlank()
+                enabled = content.isNotBlank()
             ) { Text("添加") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }

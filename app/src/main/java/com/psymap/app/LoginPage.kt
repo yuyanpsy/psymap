@@ -99,7 +99,7 @@ fun LoginPage(vm: PsyMapViewModel) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(25.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF07C160)),
                 enabled = !wechatLoading
             ) {

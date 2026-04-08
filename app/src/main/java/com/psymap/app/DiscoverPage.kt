@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,38 +21,43 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoverPage(vm: PsyMapViewModel) {
-    var selectedSubject by remember { mutableStateOf<Subject?>(null) }
+    var selectedBankName by remember { mutableStateOf<String?>(null) }
     var selectedType by remember { mutableStateOf<QuestionType?>(null) }
     var showBankDetail by remember { mutableStateOf(false) }
     var selectedBankId by remember { mutableStateOf("") }
     var filterFrequent by remember { mutableStateOf(false) }
     var filterMemorize by remember { mutableStateOf(false) }
 
-    // 切换科目时重置题型筛选
-    LaunchedEffect(selectedSubject) { selectedType = null }
-
-    // 根据选中科目动态获取可用题型
+    // 根据选中题库动态获取可用题型
+    val selectedBank = if (selectedBankName != null) vm.questionBanks.find { it.id == selectedBankName } else null
     val availableTypes: List<QuestionType> = when {
-        selectedSubject != null -> selectedSubject!!.availableQuestionTypes().filter { it != QuestionType.MULTI_CHOICE }
+        selectedBank != null -> selectedBank.subject.availableQuestionTypes().filter { it != QuestionType.MULTI_CHOICE }
         else -> QuestionType.entries.filter { it != QuestionType.MULTI_CHOICE }
     }
 
     Row(modifier = Modifier.fillMaxSize()) {
-        // 左侧科目分类栏
+        // 左侧分类栏 — 从题库动态生成
+        val bankNames = vm.questionBanks.map { it.name }.distinct()
+
         Column(
             modifier = Modifier
                 .width(80.dp)
                 .fillMaxHeight()
                 .background(Color(0xFFF5F5F5))
+                .verticalScroll(rememberScrollState())
         ) {
-            SubjectSideItem(label = "全部", selected = selectedSubject == null,
-                onClick = { selectedSubject = null })
-            Subject.entries.forEach { subject ->
-                SubjectSideItem(label = subject.label, selected = selectedSubject == subject,
-                    onClick = { selectedSubject = subject })
+            SubjectSideItem(label = "全部", selected = selectedBankName == null,
+                onClick = { selectedBankName = null })
+
+            vm.questionBanks.forEach { bank ->
+                SubjectSideItem(
+                    label = bank.name,
+                    selected = selectedBankName == bank.id,
+                    onClick = { selectedBankName = bank.id }
+                )
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
             HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
             Spacer(Modifier.height(8.dp))
 
@@ -65,7 +71,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
 
         // 右侧
         val filteredBanks = vm.questionBanks.filter { bank ->
-            selectedSubject == null || bank.subject == selectedSubject
+            selectedBankName == null || bank.id == selectedBankName
         }
 
         LazyColumn(
@@ -97,22 +103,24 @@ fun DiscoverPage(vm: PsyMapViewModel) {
             }
 
             // 当前筛选提示
-            if (selectedSubject != null) {
+            if (selectedBank != null) {
                 item {
                     Text(
-                        "${selectedSubject!!.emoji} ${selectedSubject!!.label}  ·  可用题型: ${availableTypes.joinToString("、") { it.label }}",
+                        "${selectedBank.subject.emoji} ${selectedBank.name}  ·  可用题型: ${availableTypes.joinToString("、") { it.label }}",
                         fontSize = 11.sp, color = Color.Gray,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                     )
                 }
             }
 
-            items(filteredBanks) { bank ->
-                val questions = vm.getQuestionsForBank(bank.id).filter { q ->
+            items(filteredBanks, key = { it.id }) { bank ->
+                val allBankQuestions = vm.getQuestionsForBank(bank.id)
+                val questions = allBankQuestions.filter { q ->
                     (selectedType == null || q.type == selectedType) &&
                     (!filterFrequent || q.isFrequent) &&
                     (!filterMemorize || q.isMemorize)
                 }
+                val totalCount = allBankQuestions.size
 
                 Column(
                     modifier = Modifier.fillMaxWidth()
@@ -136,7 +144,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(4.dp))
                     // 显示该题库的可用题型
                     Text(
-                        "${questions.size} 题  ·  错题 ${questions.count { it.isInWrongBook }}  ·  ${bank.subject.availableQuestionTypes().joinToString("/") { it.label }}",
+                        "${totalCount} 题  ·  错题 ${allBankQuestions.count { it.isInWrongBook }}  ·  ${bank.subject.availableQuestionTypes().joinToString("/") { it.label }}",
                         fontSize = 11.sp, color = Color.Gray
                     )
                     HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = Color(0xFFF0F0F0))
@@ -173,6 +181,6 @@ fun SubjectSideItem(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(label, fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) Color(0xFFEF6C00) else Color(0xFF666666))
+            color = if (selected) Color(0xFFFF8A00) else Color(0xFF666666))
     }
 }

@@ -2,6 +2,7 @@ package com.psymap.app
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,140 +58,18 @@ fun PracticePage(vm: PsyMapViewModel) {
     }
 
     if (showStudySession) {
-        StudySessionPage(vm = vm, onFinish = { showStudySession = false })
-    }
-
-    // 单题作答弹窗（错题本/收藏本点击）
-    singleQuestionToAnswer?.let { q ->
-        SingleQuestionDialog(vm = vm, question = q, onDismiss = { singleQuestionToAnswer = null })
-    }
-}
-
-// ==================== 单题作答弹窗（支持AI评分） ====================
-@Composable
-fun SingleQuestionDialog(vm: PsyMapViewModel, question: Question, onDismiss: () -> Unit) {
-    var userAnswer by remember { mutableStateOf("") }
-    var showAnswer by remember { mutableStateOf(false) }
-    var selectedOption by remember { mutableStateOf(-1) }
-    var answered by remember { mutableStateOf(false) }
-    var isCorrect by remember { mutableStateOf(false) }
-    var aiGrading by remember { mutableStateOf(false) }
-    val isChoice = question.type == QuestionType.SINGLE_CHOICE || question.type == QuestionType.MULTI_CHOICE
-    val isLoading by vm.isLoading.collectAsState()
-
-    AlertDialog(
-        onDismissRequest = { if (!aiGrading) onDismiss() },
-        title = { Text(question.type.label, fontSize = 14.sp, color = Color.Gray) },
-        text = {
-            Column {
-                Text(question.content, fontSize = 15.sp, lineHeight = 22.sp)
-                Spacer(Modifier.height(12.dp))
-
-                if (isChoice && question.options.isNotEmpty() && !answered) {
-                    question.options.forEachIndexed { idx, opt ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { selectedOption = idx }.padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = selectedOption == idx, onClick = { selectedOption = idx })
-                            Spacer(Modifier.width(4.dp))
-                            Text("${('A' + idx)}. $opt", fontSize = 14.sp)
-                        }
-                    }
-                } else if (!isChoice && !showAnswer && !aiGrading) {
-                    OutlinedTextField(
-                        value = userAnswer, onValueChange = { userAnswer = it },
-                        label = { Text("你的答案") }, modifier = Modifier.fillMaxWidth(), maxLines = 5
-                    )
-                }
-
-                // AI评分中
-                if (aiGrading) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("AI 正在评分...", fontSize = 13.sp, color = Color.Gray)
-                    }
-                }
-
-                // AI评分结果
-                if (vm.aiGradeScore >= 0 && answered && !isChoice) {
-                    Spacer(Modifier.height(8.dp))
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("🤖 AI评分: ${vm.aiGradeScore}分",
-                                fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                                color = if (vm.aiGradeScore >= 60) Color(0xFF4CAF50) else Color(0xFFD32F2F))
-                            if (vm.aiGradeResult.isNotBlank()) {
-                                Spacer(Modifier.height(4.dp))
-                                Text(vm.aiGradeResult, fontSize = 12.sp, lineHeight = 18.sp)
-                            }
-                        }
-                    }
-                }
-
-                if (showAnswer || answered) {
-                    Spacer(Modifier.height(8.dp))
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("参考答案", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFEF6C00))
-                            Spacer(Modifier.height(4.dp))
-                            Text(question.answer, fontSize = 14.sp)
-                        }
-                    }
-                    if (answered && isChoice) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            if (isCorrect) "✅ 回答正确" else "❌ 回答错误",
-                            color = if (isCorrect) Color(0xFF4CAF50) else Color(0xFFD32F2F),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (!answered && !showAnswer && !aiGrading) {
-                Button(onClick = {
-                    if (isChoice && selectedOption >= 0) {
-                        answered = true
-                        showAnswer = true
-                        val selectedLetter = ('A' + selectedOption).toString()
-                        isCorrect = question.answer.trim().equals(selectedLetter, ignoreCase = true)
-                            || question.answer.trim().equals(question.options[selectedOption].trim(), ignoreCase = true)
-                        vm.submitAnswer(question.id, selectedLetter, isCorrect)
-                        if (isCorrect && question.isInWrongBook) vm.removeFromWrongBook(question.id)
-                    } else if (!isChoice && userAnswer.isNotBlank()) {
-                        // 主观题：调用AI评分
-                        aiGrading = true
-                        vm.gradeSubjectiveAnswer(question, userAnswer)
-                    }
-                }, enabled = if (isChoice) selectedOption >= 0 else userAnswer.isNotBlank()) {
-                    Text("提交")
-                }
-            } else if (aiGrading && vm.aiGradeScore < 0) {
-                // 等待AI评分中，不显示按钮
-            } else {
-                // AI评分完成或选择题已答
-                if (aiGrading && vm.aiGradeScore >= 0 && !answered) {
-                    // AI评分返回了，更新状态
-                    LaunchedEffect(vm.aiGradeScore) {
-                        answered = true
-                        showAnswer = true
-                        isCorrect = vm.aiGradeScore >= 60
-                        aiGrading = false
-                    }
-                }
-                Button(onClick = onDismiss) { Text("关闭") }
-            }
-        },
-        dismissButton = {
-            if (!answered && !showAnswer && !aiGrading) {
-                TextButton(onClick = { showAnswer = true }) { Text("查看答案") }
-            }
+        Dialog(
+            onDismissRequest = { showStudySession = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            StudySessionPage(vm = vm, onFinish = { showStudySession = false })
         }
-    )
+    }
+
+    // 单题作答 — 使用全屏 QuestionDetailDialog
+    singleQuestionToAnswer?.let { q ->
+        QuestionDetailDialog(question = q, vm = vm, onDismiss = { singleQuestionToAnswer = null })
+    }
 }
 
 // ==================== 题库练习列表 ====================
@@ -207,7 +86,7 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(1.dp)
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -231,7 +110,8 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                                 trackColor = Color(0xFFE0E0E0)
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("${(progress * 100).toInt()}%", fontSize = 12.sp, color = Color.Gray)
+                            Text("${(progress * 100).toInt()}%", fontSize = 12.sp, color = Color.Gray,
+                                modifier = Modifier.width(46.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, maxLines = 1)
                         }
                         Spacer(Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -267,7 +147,7 @@ fun WrongBookList(vm: PsyMapViewModel, onClickQuestion: (Question) -> Unit) {
         return
     }
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("共 ${wrongQuestions.size} 道错题  ·  点击可作答", fontSize = 13.sp, color = Color.Gray) }
+        item { Text("共 ${wrongQuestions.size} 道错题  ·  点击可编辑", fontSize = 13.sp, color = Color.Gray) }
         items(wrongQuestions) { question ->
             val bank = vm.questionBanks.find { it.id == question.bankId }
             Card(
@@ -308,7 +188,7 @@ fun FavoritesList(vm: PsyMapViewModel, onClickQuestion: (Question) -> Unit) {
         return
     }
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("点击题目可直接作答", fontSize = 13.sp, color = Color.Gray) }
+        item { Text("点击可编辑", fontSize = 13.sp, color = Color.Gray) }
         items(favorites) { question ->
             val bank = vm.questionBanks.find { it.id == question.bankId }
             Card(

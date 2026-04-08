@@ -36,6 +36,12 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
     var answered by remember(question.id) { mutableStateOf(false) }
     var isCorrect by remember(question.id) { mutableStateOf(false) }
 
+    // 切题时重置AI评分状态
+    LaunchedEffect(question.id) {
+        vm.aiGradeScore = -1
+        vm.aiGradeResult = ""
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -60,6 +66,39 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
             )
+        },
+        bottomBar = {
+            Surface(shadowElevation = 8.dp, color = Color.White) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (vm.currentQuestionIndex > 0) {
+                        OutlinedButton(
+                            onClick = { vm.moveToPrev() },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("上一题")
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            if (!vm.moveToNext()) {
+                                onFinish()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(if (vm.currentQuestionIndex < vm.getStudySessionSize() - 1) "下一题" else "完成")
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -92,7 +131,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
             Spacer(Modifier.height(16.dp))
 
             // 题目内容
-            Text(question.content, fontSize = 16.sp, lineHeight = 24.sp)
+            SimpleMarkdownText(question.content)
 
             Spacer(Modifier.height(20.dp))
 
@@ -135,7 +174,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                             Text("$optionLabel.", fontWeight = FontWeight.Medium,
                                 color = borderColor, fontSize = 15.sp)
                             Spacer(Modifier.width(8.dp))
-                            Text(option, fontSize = 14.sp)
+                            Text(text = renderInlineMarkdown(option), fontSize = 14.sp)
                         }
                     }
                 }
@@ -183,6 +222,12 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                                 showAnswer = true
                                 if (userTextAnswer.isNotBlank()) {
                                     vm.gradeSubjectiveAnswer(question, userTextAnswer)
+                                } else {
+                                    // 用户未输入答案，仅显示参考答案
+                                    if (question.answer.isBlank()) {
+                                        // 本地也无答案，AI生成
+                                        vm.gradeSubjectiveAnswer(question, "（用户未作答）")
+                                    }
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -191,7 +236,13 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                             Text("提交答案")
                         }
                         OutlinedButton(
-                            onClick = { showAnswer = true },
+                            onClick = {
+                                showAnswer = true
+                                // 如果本地无答案，触发AI生成
+                                if (question.answer.isBlank()) {
+                                    vm.gradeSubjectiveAnswer(question, "（查看答案）")
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp)
                         ) {
@@ -203,6 +254,8 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
 
             // 显示答案
             if (showAnswer) {
+                // 使用实时的题目数据（答案可能被AI异步更新）
+                val liveQuestion = vm.questions.find { it.id == question.id } ?: question
                 Spacer(Modifier.height(16.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -213,7 +266,15 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                         Text("📝 参考答案", fontWeight = FontWeight.Bold, fontSize = 14.sp,
                             color = Color(0xFFEF6C00))
                         Spacer(Modifier.height(8.dp))
-                        Text(question.answer, fontSize = 14.sp, lineHeight = 22.sp)
+                        if (liveQuestion.answer.isNotBlank()) {
+                            SimpleMarkdownText(liveQuestion.answer)
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("AI 正在生成参考答案...", fontSize = 13.sp, color = Color.Gray)
+                            }
+                        }
                     }
                 }
 
@@ -272,34 +333,6 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(16.dp))
-
-                // 上一题/下一题按钮
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (vm.currentQuestionIndex > 0) {
-                        OutlinedButton(
-                            onClick = { vm.moveToPrev() },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("上一题")
-                        }
-                    }
-                    Button(
-                        onClick = {
-                            if (!vm.moveToNext()) {
-                                onFinish()
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(if (vm.currentQuestionIndex < vm.getStudySessionSize() - 1) "下一题" else "完成")
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }
-                }
             }
         }
     }

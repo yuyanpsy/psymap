@@ -199,12 +199,26 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         questions = questions + q
         updateBankCount(bankId)
         saveQuestions()
+
+        // 答案为空时，AI自动生成答案
+        if (answer.isBlank() && content.isNotBlank() && type != QuestionType.SINGLE_CHOICE && type != QuestionType.MULTI_CHOICE) {
+            val qId = q.id
+            val prompt = "你是北师大MAP考研辅导专家。请为以下${type.label}提供标准答案，按踩分点逐条列出，专业术语准确。\n题目：$content"
+            AiService.chatCompletion(prompt, content, { result ->
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    if (result.isNotBlank()) {
+                        questions = questions.map { if (it.id == qId) it.copy(answer = result) else it }
+                        saveQuestions()
+                    }
+                }
+            }, { _ -> })
+        }
     }
 
-    fun updateQuestion(questionId: String, content: String, answer: String) {
+    fun updateQuestion(questionId: String, content: String, answer: String, options: List<String> = emptyList()) {
         if (currentUser.role != UserRole.ADMIN) return
         questions = questions.map {
-            if (it.id == questionId) it.copy(content = content, answer = answer) else it
+            if (it.id == questionId) it.copy(content = content, answer = answer, options = options) else it
         }
         saveQuestions()
     }
@@ -317,26 +331,61 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         aiGradeResult = ""
         aiGradeScore = -1
 
-        AiService.gradeSubjectiveAnswer(
-            question = question.content,
-            correctAnswer = question.answer,
-            userAnswer = userAnswer,
-            onResult = { score, feedback ->
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                    aiGradeScore = score
-                    aiGradeResult = feedback
-                    _isLoading.value = false
-                    submitAnswer(question.id, userAnswer, score >= 60)
+        if (question.answer.isNotBlank()) {
+            // 本地有答案，直接对比评分
+            AiService.gradeSubjectiveAnswer(
+                question = question.content,
+                correctAnswer = question.answer,
+                userAnswer = userAnswer,
+                onResult = { score, feedback ->
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        aiGradeScore = score
+                        aiGradeResult = feedback
+                        _isLoading.value = false
+                        submitAnswer(question.id, userAnswer, score >= 60)
+                    }
+                },
+                onError = { error ->
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        aiGradeResult = "评分失败: $error"; aiGradeScore = 0; _isLoading.value = false
+                    }
                 }
-            },
-            onError = { error ->
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                    aiGradeResult = "评分失败: $error"
-                    aiGradeScore = 0
-                    _isLoading.value = false
+            )
+        } else {
+            // 本地无答案，AI先生成标准答案再评分
+            _loadingMessage.value = "AI 正在生成标准答案并评分..."
+            val genPrompt = "你是北师大MAP考研辅导专家。请为以下${question.type.label}提供标准答案，按踩分点逐条列出。\n题目：${question.content}"
+            AiService.chatCompletion(genPrompt, question.content, { aiAnswer ->
+                // 保存AI生成的答案
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    questions = questions.map { if (it.id == question.id) it.copy(answer = aiAnswer) else it }
+                    saveQuestions()
                 }
-            }
-        )
+                // 用AI答案评分
+                AiService.gradeSubjectiveAnswer(
+                    question = question.content,
+                    correctAnswer = aiAnswer,
+                    userAnswer = userAnswer,
+                    onResult = { score, feedback ->
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                            aiGradeScore = score
+                            aiGradeResult = feedback
+                            _isLoading.value = false
+                            submitAnswer(question.id, userAnswer, score >= 60)
+                        }
+                    },
+                    onError = { error ->
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                            aiGradeResult = "评分失败: $error"; aiGradeScore = 0; _isLoading.value = false
+                        }
+                    }
+                )
+            }, { error ->
+                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                    aiGradeResult = "生成答案失败: $error"; aiGradeScore = 0; _isLoading.value = false
+                }
+            })
+        }
     }
 
     // 导入结果提示
@@ -423,8 +472,12 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         newProgress[bankId] = (newProgress[bankId] ?: 0) + count
 
         val totalDone = newProgress.values.sum()
-        val updated = existing?.copy(completedCount = totalDone, bankProgress = newProgress)
-            ?: DailyCheckIn(date = today, completedCount = totalDone, bankProgress = newProgress)
+        // 保存当天的总目标数（快照），后续修改计划不影响历史判断
+        val totalTarget = dailyTargets.values.filter { it > 0 }.sum().coerceAtLeast(
+            existing?.targetCount ?: 0  // 不降低已记录的目标
+        )
+        val updated = existing?.copy(completedCount = totalDone, bankProgress = newProgress, targetCount = totalTarget)
+            ?: DailyCheckIn(date = today, completedCount = totalDone, targetCount = totalTarget, bankProgress = newProgress)
 
         checkInRecords = checkInRecords.filter { it.date != today } + updated
         todayCheckIn = updated
@@ -438,8 +491,13 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         recordBankProgress(currentBankId, 0) // 触发刷新
     }
 
-    /** 判断某天是否完成打卡（当天有任何练习记录即算打卡） */
+    /** 判断某天是否完成打卡（用当天记录的目标判断，不受后续修改影响） */
     fun isDayCheckedIn(checkIn: DailyCheckIn): Boolean {
+        // 用记录中保存的目标（targetCount > 0 说明当天有设定目标）
+        if (checkIn.targetCount > 0) {
+            return checkIn.completedCount >= checkIn.targetCount
+        }
+        // 没有目标记录的旧数据，有练习就算打卡
         return checkIn.completedCount > 0
     }
 
@@ -476,8 +534,14 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
     // ========== 数据备份/恢复 ==========
     fun exportBackup(): String {
+        val app = getApplication<android.app.Application>()
+        // 收集英文泛读和心理学知识数据
+        val readingPrefs = app.getSharedPreferences("psymap_reading", android.content.Context.MODE_PRIVATE)
+        val marksPrefs = app.getSharedPreferences("psymap_marks", android.content.Context.MODE_PRIVATE)
+        val psyPrefs = app.getSharedPreferences("psymap_psy_knowledge", android.content.Context.MODE_PRIVATE)
+
         val backup = mapOf(
-            "version" to 3,
+            "version" to 4,
             "questionBanks" to questionBanks,
             "questions" to questions,
             "checkIns" to checkInRecords,
@@ -489,10 +553,12 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             "modelName" to modelName,
             "targetPoliticsScore" to targetPoliticsScore,
             "targetEnglishScore" to targetEnglishScore,
-            "targetPsyScore" to targetPsyScore
+            "targetPsyScore" to targetPsyScore,
+            "readingArticles" to (readingPrefs.getString("saved_articles", "[]") ?: "[]"),
+            "readingMarks" to marksPrefs.all.mapValues { it.value?.toString() ?: "" },
+            "psyArticles" to (psyPrefs.getString("psy_articles", "[]") ?: "[]")
         )
         val json = gson.toJson(backup)
-        val app = getApplication<android.app.Application>()
 
         return try {
             // 用 MediaStore 写入 Downloads（跨安装可访问）
@@ -589,6 +655,28 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
             val fCount = questions.count { it.isFrequent }
             val mCount = questions.count { it.isMemorize }
+
+            // 恢复英文泛读、标记、心理学知识
+            try {
+                val readingArticles = map["readingArticles"] as? String
+                if (!readingArticles.isNullOrBlank()) {
+                    app.getSharedPreferences("psymap_reading", android.content.Context.MODE_PRIVATE)
+                        .edit().putString("saved_articles", readingArticles).apply()
+                }
+                @Suppress("UNCHECKED_CAST")
+                val readingMarks = map["readingMarks"] as? Map<String, String>
+                if (readingMarks != null) {
+                    val marksEditor = app.getSharedPreferences("psymap_marks", android.content.Context.MODE_PRIVATE).edit()
+                    readingMarks.forEach { (k, v) -> marksEditor.putString(k, v) }
+                    marksEditor.apply()
+                }
+                val psyArticles = map["psyArticles"] as? String
+                if (!psyArticles.isNullOrBlank()) {
+                    app.getSharedPreferences("psymap_psy_knowledge", android.content.Context.MODE_PRIVATE)
+                        .edit().putString("psy_articles", psyArticles).apply()
+                }
+            } catch (_: Exception) {}
+
             "恢复成功！\n题库: ${questionBanks.size}个, 题目: ${questions.size}道\n错题: ${questions.count { it.isInWrongBook }}道, 收藏: ${questions.count { it.isInFavorites }}道\n常考: ${fCount}道, 多背: ${mCount}道\n打卡: ${checkInRecords.size}天"
         } catch (e: Exception) {
             "恢复失败: ${e.message}"

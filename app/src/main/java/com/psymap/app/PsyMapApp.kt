@@ -253,8 +253,8 @@ fun BottomNavBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .shadow(4.dp, CircleShape)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        .shadow(2.dp, CircleShape)
+                        .background(Color(0xFFFF8A00), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

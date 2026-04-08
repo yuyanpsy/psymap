@@ -158,7 +158,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("${subject.emoji} ${subject.label}",
-                                fontSize = 13.sp, modifier = Modifier.width(80.dp))
+                                fontSize = 13.sp, modifier = Modifier.width(72.dp))
                             LinearProgressIndicator(
                                 progress = { rate },
                                 modifier = Modifier
@@ -167,10 +167,11 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 color = MaterialTheme.colorScheme.primary,
                                 trackColor = Color(0xFFE0E0E0)
                             )
-                            Spacer(Modifier.width(8.dp))
                             Text("${(rate * 100).toInt()}%",
                                 fontSize = 12.sp, color = Color.Gray,
-                                modifier = Modifier.width(36.dp))
+                                modifier = Modifier.padding(start = 8.dp).widthIn(min = 42.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                maxLines = 1)
                         }
                     }
                 }
