@@ -390,20 +390,19 @@ fun CreateBankDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 // ==================== 学习统计弹窗 ====================
 @Composable
 fun StatsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    val stats = vm.getSubjectStats()
+    val bankStats = vm.getBankStats()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("学习统计") },
+        title = { Text("累计正确率") },
         text = {
             Column {
                 Text("总题目: ${vm.questions.size}  |  错题: ${vm.getWrongQuestions().size}  |  收藏: ${vm.getFavoriteQuestions().size}",
                     fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(12.dp))
-                stats.forEach { (subject, pair) ->
-                    val (correct, total) = pair
+                bankStats.forEach { (bank, correct, total) ->
                     val rate = if (total > 0) correct.toFloat() / total else 0f
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${subject.emoji} ${subject.label}", fontSize = 13.sp, modifier = Modifier.width(72.dp))
+                        Text("${bank.subject.emoji} ${bank.name}", fontSize = 13.sp, modifier = Modifier.widthIn(min = 80.dp), maxLines = 1)
                         LinearProgressIndicator(progress = { rate }, modifier = Modifier.weight(1f).height(8.dp),
                             color = MaterialTheme.colorScheme.primary, trackColor = Color(0xFFE0E0E0))
                         Text("${(rate * 100).toInt()}%", fontSize = 12.sp, color = Color.Gray,

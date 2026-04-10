@@ -144,12 +144,11 @@ fun ProfilePage(vm: PsyMapViewModel) {
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("学习统计", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("累计正确率", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Spacer(Modifier.height(12.dp))
 
-                    val stats = vm.getSubjectStats()
-                    stats.forEach { (subject, pair) ->
-                        val (correct, total) = pair
+                    val bankStats = vm.getBankStats()
+                    bankStats.forEach { (bank, correct, total) ->
                         val rate = if (total > 0) correct.toFloat() / total else 0f
                         Row(
                             modifier = Modifier
@@ -157,8 +156,9 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("${subject.emoji} ${subject.label}",
-                                fontSize = 13.sp, modifier = Modifier.width(72.dp))
+                            Text("${bank.subject.emoji} ${bank.name}",
+                                fontSize = 13.sp, modifier = Modifier.widthIn(min = 80.dp),
+                                maxLines = 1)
                             LinearProgressIndicator(
                                 progress = { rate },
                                 modifier = Modifier

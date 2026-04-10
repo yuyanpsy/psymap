@@ -111,7 +111,10 @@ data class DailyCheckIn(
     val completedCount: Int = 0,
     val targetCount: Int = 0,
     val studyMinutes: Int = 0,
-    val bankProgress: Map<String, Int> = emptyMap()  // bankId -> completed
+    val bankProgress: Map<String, Int> = emptyMap(),  // bankId -> completed (含重复，用于打卡判定)
+    val bankCorrect: Map<String, Int> = emptyMap(),   // bankId -> today correct count (含重复)
+    val bankStudiedIds: Map<String, List<String>> = emptyMap(),   // bankId -> 今日学过的题目ID（去重）
+    val bankCorrectIds: Map<String, List<String>> = emptyMap()   // bankId -> 今日最新答对的题目ID（去重）
 )
 
 // ==================== 学习计划 ====================

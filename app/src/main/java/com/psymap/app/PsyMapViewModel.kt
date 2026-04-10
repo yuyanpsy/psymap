@@ -305,7 +305,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         // 更新今日题库维度的练习进度
         val bankId = question?.bankId ?: currentBankId
         if (bankId.isNotBlank()) {
-            recordBankProgress(bankId, 1)
+            recordBankProgress(bankId, 1, if (isCorrect) 1 else 0, questionId, isCorrect)
         }
     }
 
@@ -464,20 +464,47 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 记录某题库今日练习进度 +count 题 */
-    fun recordBankProgress(bankId: String, count: Int) {
+    fun recordBankProgress(bankId: String, count: Int, correctDelta: Int = 0, questionId: String = "", isCorrect: Boolean = false) {
         val today = dateFormat.format(Date())
         val existing = checkInRecords.find { it.date == today }
         val currentProgress = existing?.bankProgress ?: emptyMap()
         val newProgress = currentProgress.toMutableMap()
         newProgress[bankId] = (newProgress[bankId] ?: 0) + count
 
+        val currentCorrect = existing?.bankCorrect ?: emptyMap()
+        val newCorrect = currentCorrect.toMutableMap()
+        newCorrect[bankId] = (newCorrect[bankId] ?: 0) + correctDelta
+
+        // 去重的题目ID集合
+        val currentStudiedIds = existing?.bankStudiedIds ?: emptyMap()
+        val newStudiedIds = currentStudiedIds.toMutableMap()
+        if (questionId.isNotBlank()) {
+            val ids = (newStudiedIds[bankId] ?: emptyList()).toMutableSet()
+            ids.add(questionId)
+            newStudiedIds[bankId] = ids.toList()
+        }
+
+        val currentCorrectIds = existing?.bankCorrectIds ?: emptyMap()
+        val newCorrectIds = currentCorrectIds.toMutableMap()
+        if (questionId.isNotBlank()) {
+            val ids = (newCorrectIds[bankId] ?: emptyList()).toMutableSet()
+            if (isCorrect) ids.add(questionId) else ids.remove(questionId)
+            newCorrectIds[bankId] = ids.toList()
+        }
+
         val totalDone = newProgress.values.sum()
         // 保存当天的总目标数（快照），后续修改计划不影响历史判断
         val totalTarget = dailyTargets.values.filter { it > 0 }.sum().coerceAtLeast(
             existing?.targetCount ?: 0  // 不降低已记录的目标
         )
-        val updated = existing?.copy(completedCount = totalDone, bankProgress = newProgress, targetCount = totalTarget)
-            ?: DailyCheckIn(date = today, completedCount = totalDone, targetCount = totalTarget, bankProgress = newProgress)
+        val updated = existing?.copy(
+            completedCount = totalDone, bankProgress = newProgress, bankCorrect = newCorrect,
+            bankStudiedIds = newStudiedIds, bankCorrectIds = newCorrectIds, targetCount = totalTarget
+        ) ?: DailyCheckIn(
+            date = today, completedCount = totalDone, targetCount = totalTarget,
+            bankProgress = newProgress, bankCorrect = newCorrect,
+            bankStudiedIds = newStudiedIds, bankCorrectIds = newCorrectIds
+        )
 
         checkInRecords = checkInRecords.filter { it.date != today } + updated
         todayCheckIn = updated
@@ -832,15 +859,32 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                 else sessionCorrectCount.toDouble() / sessionTotalCount
 
     fun getSubjectStats(): Map<Subject, Pair<Int, Int>> {
-        // subject -> (correct, total)
+        // subject -> (correct, studied) 每道题只算一次，取最新结果
         val result = mutableMapOf<Subject, Pair<Int, Int>>()
         for (bank in questionBanks) {
             val bankQuestions = getQuestionsForBank(bank.id)
-            val correct = bankQuestions.sumOf { it.correctCount }
-            val total = bankQuestions.sumOf { it.correctCount + it.wrongCount }
-            result[bank.subject] = Pair(correct, total)
+            val studied = bankQuestions.filter { it.correctCount + it.wrongCount > 0 }
+            val correct = studied.count { !it.isInWrongBook }
+            val prev = result[bank.subject]
+            if (prev != null) {
+                result[bank.subject] = Pair(prev.first + correct, prev.second + studied.size)
+            } else {
+                result[bank.subject] = Pair(correct, studied.size)
+            }
         }
         return result
+    }
+
+    /** 按题库维度统计正确率 — 每道题只算一次，取最新结果 */
+    fun getBankStats(): List<Triple<QuestionBank, Int, Int>> {
+        return questionBanks.map { bank ->
+            val bankQuestions = getQuestionsForBank(bank.id)
+            // 只统计学习过的题目（有答题记录的）
+            val studied = bankQuestions.filter { it.correctCount + it.wrongCount > 0 }
+            // 最新一次答对的题目数（不在错题本 = 最新答对）
+            val correct = studied.count { !it.isInWrongBook }
+            Triple(bank, correct, studied.size)
+        }
     }
 
     // ========== 管理员登录 ==========

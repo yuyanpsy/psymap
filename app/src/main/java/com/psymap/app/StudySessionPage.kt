@@ -32,9 +32,11 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
 
     var showAnswer by remember(question.id) { mutableStateOf(false) }
     var selectedOption by remember(question.id) { mutableStateOf(-1) }
+    var selectedOptions by remember(question.id) { mutableStateOf(setOf<Int>()) }  // 多选题用
     var userTextAnswer by remember(question.id) { mutableStateOf("") }
     var answered by remember(question.id) { mutableStateOf(false) }
     var isCorrect by remember(question.id) { mutableStateOf(false) }
+    val isMultiChoice = question.type == QuestionType.MULTI_CHOICE
 
     // 切题时重置AI评分状态
     LaunchedEffect(question.id) {
@@ -137,11 +139,18 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
 
             // 选择题选项
             if ((question.type == QuestionType.SINGLE_CHOICE || question.type == QuestionType.MULTI_CHOICE) && question.options.isNotEmpty()) {
+                if (isMultiChoice && !answered) {
+                    Text("（多选题，可选择多个选项）", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(Modifier.height(4.dp))
+                }
                 question.options.forEachIndexed { index, option ->
                     val optionLabel = ('A' + index).toString()
-                    val isSelected = selectedOption == index
-                    val isCorrectOption = question.answer.trim().equals(optionLabel, ignoreCase = true)
-                        || question.answer.trim().equals(option.trim(), ignoreCase = true)
+                    val isSelected = if (isMultiChoice) index in selectedOptions else selectedOption == index
+                    // 解析正确答案字母集合（支持 "ABD"、"A,B,D"、"A B D" 等格式）
+                    val correctLetters = question.answer.trim().uppercase()
+                        .replace(Regex("[,，\\s]+"), "")
+                        .toCharArray().map { it.toString() }.toSet()
+                    val isCorrectOption = optionLabel in correctLetters
                     val bgColor = when {
                         !answered -> if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.White
                         isCorrectOption -> Color(0xFFE8F5E9)
@@ -161,7 +170,11 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                             .padding(vertical = 4.dp)
                             .border(1.dp, borderColor, RoundedCornerShape(8.dp))
                             .clickable(enabled = !answered) {
-                                selectedOption = index
+                                if (isMultiChoice) {
+                                    selectedOptions = if (index in selectedOptions) selectedOptions - index else selectedOptions + index
+                                } else {
+                                    selectedOption = index
+                                }
                             },
                         shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(containerColor = bgColor),
@@ -181,18 +194,29 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
 
                 Spacer(Modifier.height(16.dp))
 
-                if (!answered && selectedOption >= 0) {
+                val canSubmit = if (isMultiChoice) selectedOptions.isNotEmpty() else selectedOption >= 0
+                if (!answered && canSubmit) {
                     Button(
                         onClick = {
                             answered = true
-                            val selectedLetter = ('A' + selectedOption).toString()
-                            val selectedText = question.options[selectedOption]
-                            // 支持多种答案格式：字母("A")、完整选项文本、或选项包含答案
-                            isCorrect = question.answer.trim().equals(selectedLetter, ignoreCase = true)
-                                || question.answer.trim().equals(selectedText.trim(), ignoreCase = true)
-                                || selectedText.trim().startsWith(question.answer.trim(), ignoreCase = true)
-                                || question.answer.trim().startsWith(selectedLetter, ignoreCase = true)
-                            vm.submitAnswer(question.id, selectedLetter, isCorrect)
+                            if (isMultiChoice) {
+                                // 多选：将选中的字母排序拼接，与答案比较
+                                val selectedLetters = selectedOptions.sorted().map { ('A' + it).toString() }.toSet()
+                                val correctLetters = question.answer.trim().uppercase()
+                                    .replace(Regex("[,，\\s]+"), "")
+                                    .toCharArray().map { it.toString() }.toSet()
+                                isCorrect = selectedLetters == correctLetters
+                                val userAnswerStr = selectedLetters.sorted().joinToString("")
+                                vm.submitAnswer(question.id, userAnswerStr, isCorrect)
+                            } else {
+                                val selectedLetter = ('A' + selectedOption).toString()
+                                val selectedText = question.options[selectedOption]
+                                isCorrect = question.answer.trim().equals(selectedLetter, ignoreCase = true)
+                                    || question.answer.trim().equals(selectedText.trim(), ignoreCase = true)
+                                    || selectedText.trim().startsWith(question.answer.trim(), ignoreCase = true)
+                                    || question.answer.trim().startsWith(selectedLetter, ignoreCase = true)
+                                vm.submitAnswer(question.id, selectedLetter, isCorrect)
+                            }
                             showAnswer = true
                         },
                         modifier = Modifier.fillMaxWidth(),

@@ -94,14 +94,16 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                         Spacer(Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(bank.name, fontWeight = FontWeight.Medium, fontSize = 15.sp)
-                            Text("${questions.size} 题", fontSize = 12.sp, color = Color.Gray)
+                            val todayStudied = vm.todayCheckIn.bankProgress[bank.id] ?: 0
+                            val todayUniqueCount = vm.todayCheckIn.bankStudiedIds[bank.id]?.size ?: 0
+                            Text("共 ${questions.size} 题，今日已学习 $todayUniqueCount 题", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
                     if (questions.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
-                        val correct = questions.sumOf { it.correctCount }
-                        val total = questions.sumOf { it.correctCount + it.wrongCount }
-                        val progress = if (total > 0) correct.toFloat() / total else 0f
+                        val todayUniqueStudied = vm.todayCheckIn.bankStudiedIds[bank.id]?.size ?: 0
+                        val todayCorrectCount = vm.todayCheckIn.bankCorrectIds[bank.id]?.size ?: 0
+                        val progress = if (todayUniqueStudied > 0) todayCorrectCount.toFloat() / todayUniqueStudied else 0f
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             LinearProgressIndicator(
                                 progress = { progress },
@@ -110,7 +112,8 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                                 trackColor = Color(0xFFE0E0E0)
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("${(progress * 100).toInt()}%", fontSize = 12.sp, color = Color.Gray,
+                            Text(if (todayUniqueStudied > 0) "${(progress * 100).toInt()}%" else "--",
+                                fontSize = 12.sp, color = Color.Gray,
                                 modifier = Modifier.width(46.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, maxLines = 1)
                         }
                         Spacer(Modifier.height(12.dp))
