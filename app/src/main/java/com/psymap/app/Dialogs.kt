@@ -134,6 +134,8 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var baseUrl by remember { mutableStateOf(vm.apiBaseUrl) }
     var model by remember { mutableStateOf(vm.modelName) }
     var aiOn by remember { mutableStateOf(vm.aiEnabled) }
+    var tcId by remember { mutableStateOf(TencentConfig.secretId) }
+    var tcKey by remember { mutableStateOf(TencentConfig.secretKey) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -187,6 +189,22 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     enabled = aiOn
                 )
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text("腾讯云（TTS/OCR）", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = tcId, onValueChange = { tcId = it },
+                    label = { Text("SecretId") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = tcKey, onValueChange = { tcKey = it },
+                    label = { Text("SecretKey") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                )
             }
         },
         confirmButton = {
@@ -196,6 +214,8 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 vm.modelName = model
                 vm.toggleAiEnabled(aiOn)
                 vm.saveApiConfig()
+                val context = vm.getApplication<android.app.Application>()
+                TencentConfig.save(context.getSharedPreferences("psymap", android.content.Context.MODE_PRIVATE), tcId, tcKey)
                 onDismiss()
             }) {
                 Text("保存")

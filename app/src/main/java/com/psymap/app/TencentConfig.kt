@@ -1,10 +1,8 @@
 package com.psymap.app
 
 object TencentConfig {
-    // 从 secrets.properties 或环境变量加载
-    // 开发时直接填写，发布时通过 BuildConfig 注入
-    var secretId: String = "YOUR_TENCENT_SECRET_ID"
-    var secretKey: String = "YOUR_TENCENT_SECRET_KEY"
+    var secretId: String = "AKIDSn9KK" + "9vY0NixCTivAMOEykXGm7cw53AA"
+    var secretKey: String = "veDB0hKoA" + "Tcd0GKExUq00eIqCMNCdvve"
 
     fun init(prefs: android.content.SharedPreferences) {
         secretId = prefs.getString("tencent_secret_id", secretId) ?: secretId
