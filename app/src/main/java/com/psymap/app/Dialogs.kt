@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -17,6 +18,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +28,103 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+
+// ==================== 图片插入辅助 ====================
+
+@Composable
+fun RichTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 8,
+    placeholder: String = ""
+) {
+    val context = LocalContext.current
+    val imgDir = remember { java.io.File(context.getExternalFilesDir(null), "images").apply { mkdirs() } }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            try {
+                val fileName = "img_${System.currentTimeMillis()}.jpg"
+                val destFile = java.io.File(imgDir, fileName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                // 在文本末尾插入图片标记
+                val imgTag = "\n![图片](${destFile.absolutePath})\n"
+                onValueChange(value + imgTag)
+            } catch (e: Exception) {
+                Toast.makeText(context, "图片插入失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = maxLines,
+            placeholder = if (placeholder.isNotBlank()) {{ Text(placeholder) }} else null
+        )
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { imagePicker.launch("image/*") }) {
+                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF1976D2))
+                Spacer(Modifier.width(4.dp))
+                Text("插入图片", fontSize = 12.sp, color = Color(0xFF1976D2))
+            }
+        }
+    }
+}
+
+// ==================== 数字步进输入（+/- 按钮 + 可点击编辑） ====================
+
+@Composable
+fun NumberStepper(value: String, onValueChange: (String) -> Unit, min: Int = 1, max: Int = 999, suffix: String = "") {
+    var editing by remember { mutableStateOf(false) }
+    val focusReq = remember { FocusRequester() }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        IconButton(onClick = { val v = (value.toIntOrNull() ?: min); if (v > min) onValueChange("${v - 1}") },
+            modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(16.dp))
+        }
+        Box(modifier = Modifier.width(44.dp).height(28.dp), contentAlignment = Alignment.Center) {
+            if (editing) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = value,
+                    onValueChange = { newVal -> onValueChange(newVal.filter { c -> c.isDigit() }.take(3)) },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusReq),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    ),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { editing = false }),
+                    singleLine = true
+                )
+                LaunchedEffect(Unit) { focusReq.requestFocus() }
+            } else {
+                Text(
+                    "$value$suffix", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { editing = true },
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1
+                )
+            }
+        }
+        IconButton(onClick = { val v = (value.toIntOrNull() ?: min); if (v < max) onValueChange("${v + 1}") },
+            modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+        }
+    }
+}
 
 // ==================== API 配置弹窗 ====================
 
@@ -33,18 +133,41 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var key by remember { mutableStateOf(vm.apiKey) }
     var baseUrl by remember { mutableStateOf(vm.apiBaseUrl) }
     var model by remember { mutableStateOf(vm.modelName) }
+    var aiOn by remember { mutableStateOf(vm.aiEnabled) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("AI 配置") },
+        title = {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("AI 配置")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (aiOn) "AI已开启" else "AI已关闭", fontSize = 12.sp,
+                        color = if (aiOn) Color(0xFF4CAF50) else Color.Gray)
+                    Spacer(Modifier.width(4.dp))
+                    Switch(checked = aiOn, onCheckedChange = { aiOn = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF4CAF50)))
+                }
+            }
+        },
         text = {
             Column {
+                if (!aiOn) {
+                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("⚠️ AI功能已关闭，拍照OCR、心理学知识生成、AI学习计划等付费功能将不可用",
+                            fontSize = 12.sp, color = Color(0xFFE65100),
+                            modifier = Modifier.padding(12.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = key,
                     onValueChange = { key = it },
                     label = { Text("API Key") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = aiOn
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
@@ -52,7 +175,8 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     onValueChange = { baseUrl = it },
                     label = { Text("API Base URL") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = aiOn
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
@@ -60,7 +184,8 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     onValueChange = { model = it },
                     label = { Text("OCR视觉模型") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = aiOn
                 )
             }
         },
@@ -69,6 +194,7 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 vm.apiKey = key
                 vm.apiBaseUrl = baseUrl
                 vm.modelName = model
+                vm.toggleAiEnabled(aiOn)
                 vm.saveApiConfig()
                 onDismiss()
             }) {
@@ -202,9 +328,16 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -> Unit) {
+fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -> Unit,
+                            filterTypes: Set<QuestionType> = emptySet(),
+                            filterFrequent: Boolean = false, filterMemorize: Boolean = false) {
     val bank = vm.questionBanks.find { it.id == bankId } ?: return
-    val questions = vm.getQuestionsForBank(bankId)
+    val allQuestions = vm.getQuestionsForBank(bankId)
+    val questions = allQuestions.filter { q ->
+        (filterTypes.isEmpty() || q.type in filterTypes) &&
+        (!filterFrequent || q.isFrequent) &&
+        (!filterMemorize || q.isMemorize)
+    }
     var showAddQuestion by remember { mutableStateOf(false) }
     var editingBankName by remember { mutableStateOf(false) }
     var newBankName by remember { mutableStateOf(bank.name) }
@@ -464,10 +597,18 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
     }
 
     viewingQuestion?.let { q ->
+        // 使用筛选后的题目列表，确保上一题/下一题只在筛选结果中移动
+        val filteredQuestions = allQuestions.filter { fq ->
+            (filterTypes.isEmpty() || fq.type in filterTypes) &&
+            (!filterFrequent || fq.isFrequent) &&
+            (!filterMemorize || fq.isMemorize)
+        }
         QuestionDetailDialog(
             question = q,
             vm = vm,
-            onDismiss = { viewingQuestion = null }
+            onDismiss = { viewingQuestion = null },
+            questionList = filteredQuestions,
+            onNavigate = { viewingQuestion = it }
         )
     }
 }
@@ -476,11 +617,19 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () -> Unit) {
+fun QuestionDetailDialog(
+    question: Question,
+    vm: PsyMapViewModel,
+    onDismiss: () -> Unit,
+    questionList: List<Question> = emptyList(),
+    onNavigate: ((Question) -> Unit)? = null
+) {
     var isEditing by remember { mutableStateOf(false) }
     var editContent by remember(question.id) { mutableStateOf(question.content) }
     var editAnswer by remember(question.id) { mutableStateOf(question.answer) }
+    var editExplanation by remember(question.id) { mutableStateOf(question.explanation) }
     var editOptions by remember(question.id) { mutableStateOf(question.options.joinToString("\n")) }
+    val currentIndex = if (questionList.isNotEmpty()) questionList.indexOfFirst { it.id == question.id } else -1
     val bank = vm.questionBanks.find { it.id == question.bankId }
     val availableTypes = bank?.subject?.availableQuestionTypes() ?: QuestionType.entries.toList()
     // 从 vm 实时获取最新的 question 状态
@@ -507,6 +656,39 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                         }
                     }
                 )
+            },
+            bottomBar = {
+                if (questionList.size > 1 && onNavigate != null && !isEditing) {
+                    Surface(shadowElevation = 8.dp, color = Color.White) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { if (currentIndex > 0) onNavigate(questionList[currentIndex - 1]) },
+                                enabled = currentIndex > 0,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("上一题")
+                            }
+                            Text("${currentIndex + 1}/${questionList.size}", fontSize = 13.sp, color = Color.Gray)
+                            Button(
+                                onClick = { if (currentIndex < questionList.size - 1) onNavigate(questionList[currentIndex + 1]) },
+                                enabled = currentIndex < questionList.size - 1,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("下一题")
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
             }
         ) { padding ->
             Column(
@@ -562,8 +744,8 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                 if (isEditing) {
                     val isChoiceType = liveQuestion.type == QuestionType.SINGLE_CHOICE || liveQuestion.type == QuestionType.MULTI_CHOICE
 
-                    OutlinedTextField(value = editContent, onValueChange = { editContent = it },
-                        label = { Text("题目内容") }, modifier = Modifier.fillMaxWidth(), maxLines = 8)
+                    RichTextField(value = editContent, onValueChange = { editContent = it },
+                        label = "题目内容", modifier = Modifier.fillMaxWidth(), maxLines = 8)
                     Spacer(Modifier.height(8.dp))
                     if (isChoiceType || editOptions.isNotBlank()) {
                         OutlinedTextField(value = editOptions, onValueChange = { editOptions = it },
@@ -571,8 +753,14 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                             placeholder = { Text("A.选项1\nB.选项2\nC.选项3\nD.选项4") })
                         Spacer(Modifier.height(8.dp))
                     }
-                    OutlinedTextField(value = editAnswer, onValueChange = { editAnswer = it },
-                        label = { Text(if (isChoiceType) "正确答案（如 A）" else "答案") }, modifier = Modifier.fillMaxWidth(), maxLines = 8)
+                    RichTextField(value = editAnswer, onValueChange = { editAnswer = it },
+                        label = if (isChoiceType) "正确答案（如 A 或 ABD）" else "答案", modifier = Modifier.fillMaxWidth(), maxLines = 8)
+
+                    // 解析字段（所有题型可用）
+                    Spacer(Modifier.height(8.dp))
+                    RichTextField(value = editExplanation, onValueChange = { editExplanation = it },
+                        label = "解析（选填）", modifier = Modifier.fillMaxWidth(), maxLines = 8,
+                        placeholder = "知其然知其所以然...")
 
                     Spacer(Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -581,7 +769,7 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                         Button(onClick = {
                             val opts = if (isChoiceType || editOptions.isNotBlank())
                                 editOptions.lines().filter { it.isNotBlank() } else emptyList()
-                            vm.updateQuestion(question.id, editContent, editAnswer, opts)
+                            vm.updateQuestion(question.id, editContent, editAnswer, opts, editExplanation)
                             isEditing = false
                             onDismiss()
                         }) { Text("保存") }
@@ -609,6 +797,18 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
                         }
                     }
 
+                    // 解析显示
+                    if (liveQuestion.explanation.isNotBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("💡 解析", fontSize = 12.sp, color = Color(0xFF7B1FA2))
+                        Spacer(Modifier.height(4.dp))
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5))) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                SimpleMarkdownText(liveQuestion.explanation)
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("复习 ${liveQuestion.reviewCount} 次", fontSize = 11.sp, color = Color.Gray)
@@ -626,10 +826,12 @@ fun QuestionDetailDialog(question: Question, vm: PsyMapViewModel, onDismiss: () 
 
 // ==================== 添加题目弹窗 ====================
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var content by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
+    var explanationText by remember { mutableStateOf("") }
     val bank = vm.questionBanks.find { it.id == bankId }
     val availableTypes = bank?.subject?.availableQuestionTypes() ?: QuestionType.entries
     var selectedType by remember { mutableStateOf(availableTypes.first()) }
@@ -638,15 +840,47 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
     var isFrequent by remember { mutableStateOf(false) }
     var isMemorize by remember { mutableStateOf(false) }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("添加题目 - ${bank?.name ?: ""}") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                // 题型选择（按科目过滤）
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("添加题目 - ${bank?.name ?: ""}", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        TextButton(
+                            onClick = {
+                                val options = if (selectedType == QuestionType.SINGLE_CHOICE || selectedType == QuestionType.MULTI_CHOICE)
+                                    optionsText.lines().filter { it.isNotBlank() } else emptyList()
+                                vm.addQuestion(bankId, content, answer, selectedType, options, chapter, explanation = explanationText)
+                                val lastQ = vm.questions.lastOrNull()
+                                if (lastQ != null) {
+                                    if (isFrequent) vm.toggleFrequent(lastQ.id)
+                                    if (isMemorize) vm.toggleMemorize(lastQ.id)
+                                }
+                                onDismiss()
+                            },
+                            enabled = content.isNotBlank()
+                        ) { Text("添加", fontWeight = FontWeight.Bold) }
+                    }
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
                 Text("题型", fontSize = 12.sp, color = Color.Gray)
                 Spacer(Modifier.height(4.dp))
-                @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     availableTypes.forEach { type ->
                         FilterChip(
@@ -658,51 +892,38 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
                 }
                 Spacer(Modifier.height(8.dp))
 
-                // 标签
-                @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilterChip(selected = isFrequent, onClick = { isFrequent = !isFrequent },
                         label = { Text("🔥 常考", fontSize = 11.sp) })
                     FilterChip(selected = isMemorize, onClick = { isMemorize = !isMemorize },
                         label = { Text("📖 多背", fontSize = 11.sp) })
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
-                OutlinedTextField(value = content, onValueChange = { content = it },
-                    label = { Text("题目内容") }, modifier = Modifier.fillMaxWidth(), maxLines = 5)
+                RichTextField(value = content, onValueChange = { content = it },
+                    label = "题目内容", modifier = Modifier.fillMaxWidth(), maxLines = 8)
                 Spacer(Modifier.height(8.dp))
 
                 if (selectedType == QuestionType.SINGLE_CHOICE || selectedType == QuestionType.MULTI_CHOICE) {
                     OutlinedTextField(value = optionsText, onValueChange = { optionsText = it },
-                        label = { Text("选项（每行一个）") }, modifier = Modifier.fillMaxWidth(), maxLines = 6)
+                        label = { Text("选项（每行一个）") }, modifier = Modifier.fillMaxWidth(), maxLines = 8,
+                        placeholder = { Text("A.选项1\nB.选项2\nC.选项3\nD.选项4") })
                     Spacer(Modifier.height(8.dp))
                 }
 
-                OutlinedTextField(value = answer, onValueChange = { answer = it },
-                    label = { Text("答案") }, modifier = Modifier.fillMaxWidth(), maxLines = 5)
+                RichTextField(value = answer, onValueChange = { answer = it },
+                    label = "答案", modifier = Modifier.fillMaxWidth(), maxLines = 8)
+                Spacer(Modifier.height(8.dp))
+
+                RichTextField(value = explanationText, onValueChange = { explanationText = it },
+                    label = "解析（选填）", modifier = Modifier.fillMaxWidth(), maxLines = 8,
+                    placeholder = "知其然知其所以然...")
                 Spacer(Modifier.height(8.dp))
 
                 OutlinedTextField(value = chapter, onValueChange = { chapter = it },
                     label = { Text("章节（可选）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(24.dp))
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val options = if (selectedType == QuestionType.SINGLE_CHOICE || selectedType == QuestionType.MULTI_CHOICE)
-                        optionsText.lines().filter { it.isNotBlank() } else emptyList()
-                    vm.addQuestion(bankId, content, answer, selectedType, options, chapter)
-                    // 设置标签
-                    val lastQ = vm.questions.lastOrNull()
-                    if (lastQ != null) {
-                        if (isFrequent) vm.toggleFrequent(lastQ.id)
-                        if (isMemorize) vm.toggleMemorize(lastQ.id)
-                    }
-                    onDismiss()
-                },
-                enabled = content.isNotBlank()
-            ) { Text("添加") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
+        }
+    }
 }

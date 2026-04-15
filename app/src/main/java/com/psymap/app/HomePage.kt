@@ -3,6 +3,9 @@ package com.psymap.app
 import android.content.ContentResolver
 import android.content.Intent
 import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
 import android.net.Uri
 import android.provider.CalendarContract
 import android.widget.Toast
@@ -61,7 +64,7 @@ fun HomePage(vm: PsyMapViewModel) {
     var showCreateBank by remember { mutableStateOf(false) }
     var showMakeAudio by remember { mutableStateOf(false) }
     var showListenAudio by remember { mutableStateOf(false) }
-    var showMoreKnowledge by remember { mutableStateOf(false) }
+    var showExamSetup by remember { mutableStateOf(false) }
     var pendingFileUri by remember { mutableStateOf<Uri?>(null) }
     var showFileImportDialog by remember { mutableStateOf(false) }
     var showStudyPlan by remember { mutableStateOf(false) }
@@ -129,7 +132,7 @@ fun HomePage(vm: PsyMapViewModel) {
                 onMyBanks = { searchText = ""; vm.searchQuestions("") },
                 onMakeAudio = { showMakeAudio = true },
                 onListen = { showListenAudio = true },
-                onMoreKnowledge = { showMoreKnowledge = true }
+                onMoreKnowledge = { showExamSetup = true }
             )
         }
 
@@ -153,7 +156,7 @@ fun HomePage(vm: PsyMapViewModel) {
                                     "text/plain",
                                     "image/*"
                                 ))
-                            }) { Text("📄 导入文件", color = Color.Gray, fontSize = 13.sp) }
+                            }) { Text("📄 导入文件", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp) }
                             TextButton(onClick = { showCreateBank = true }) {
                                 Text("+ 创建题库", color = MaterialTheme.colorScheme.primary)
                             }
@@ -194,8 +197,8 @@ fun HomePage(vm: PsyMapViewModel) {
     if (showStudyPlan) {
         StudyPlanDialog(vm = vm, onDismiss = { showStudyPlan = false })
     }
-    if (showMoreKnowledge) {
-        MoreKnowledgeDialog(vm = vm, onDismiss = { showMoreKnowledge = false })
+    if (showExamSetup) {
+        ExamSetupDialog(vm = vm, onDismiss = { showExamSetup = false })
     }
     if (showFileImportDialog && pendingFileUri != null) {
         FileImportDialog(
@@ -253,7 +256,7 @@ fun QuickActions(
         Triple(Icons.Default.LibraryBooks, "我的题库", onMyBanks),
         Triple(Icons.Default.RecordVoiceOver, "制作音频", onMakeAudio),
         Triple(Icons.Default.Headphones, "磨耳朵", onListen),
-        Triple(Icons.Default.MenuBook, "更多知识", onMoreKnowledge)
+        Triple(Icons.Default.Quiz, "考一考", onMoreKnowledge)
     )
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         for (row in actions.chunked(4)) {
@@ -531,6 +534,129 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         Text("未打卡", fontSize = 11.sp, color = Color.Gray)
                     }
                 }
+
+                // ==================== 整体计划 ====================
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = Color(0xFFF0F0F0))
+                Spacer(Modifier.height(12.dp))
+
+                val context = LocalContext.current
+                val planPrefs = remember { context.getSharedPreferences("psymap_plan", android.content.Context.MODE_PRIVATE) }
+                var planImagePath by remember { mutableStateOf(planPrefs.getString("plan_image", "") ?: "") }
+                var planText by remember { mutableStateOf(planPrefs.getString("plan_text", "") ?: "") }
+
+                val planFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val mimeType = context.contentResolver.getType(uri) ?: ""
+                    when {
+                        mimeType.startsWith("image/") -> {
+                            // 图片：保存到本地并显示
+                            try {
+                                val planDir = java.io.File(context.getExternalFilesDir(null), "plan").apply { mkdirs() }
+                                val destFile = java.io.File(planDir, "plan_${System.currentTimeMillis()}.jpg")
+                                context.contentResolver.openInputStream(uri)?.use { input ->
+                                    destFile.outputStream().use { output -> input.copyTo(output) }
+                                }
+                                planImagePath = destFile.absolutePath
+                                planPrefs.edit().putString("plan_image", planImagePath).apply()
+                                Toast.makeText(context, "计划图片已导入", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        else -> {
+                            // 文档（PDF/Word/Excel）：读取文本内容
+                            try {
+                                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: ""
+                                if (text.isNotBlank()) {
+                                    planText = text.take(5000)
+                                    planPrefs.edit().putString("plan_text", planText).apply()
+                                    Toast.makeText(context, "计划已导入", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "文件内容为空或格式不支持", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "导入失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("📋 整体计划", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Row {
+                        if (planImagePath.isNotBlank() || planText.isNotBlank()) {
+                            TextButton(onClick = {
+                                planImagePath = ""; planText = ""
+                                planPrefs.edit().remove("plan_image").remove("plan_text").apply()
+                            }) { Text("清除", fontSize = 12.sp, color = Color(0xFFD32F2F)) }
+                        }
+                        TextButton(onClick = {
+                            planFilePicker.launch(arrayOf("image/*", "application/pdf", "text/*",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "application/vnd.ms-excel", "application/msword", "*/*"))
+                        }) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("导入计划", fontSize = 13.sp)
+                        }
+                    }
+                }
+
+                // 显示计划内容
+                if (planImagePath.isNotBlank()) {
+                    val planBmp = remember(planImagePath) { android.graphics.BitmapFactory.decodeFile(planImagePath) }
+                    if (planBmp != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Image(
+                            bitmap = planBmp.asImageBitmap(),
+                            contentDescription = "整体计划",
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                        )
+                    }
+                }
+                if (planText.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFAFAFA))
+                    ) {
+                        // 尝试结构化显示（表格格式）
+                        val lines = planText.lines().filter { it.isNotBlank() }
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            lines.take(50).forEach { line ->
+                                val cells = line.split(Regex("[\\t,，|｜]")).map { it.trim() }.filter { it.isNotBlank() }
+                                if (cells.size > 1) {
+                                    // 表格行
+                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                        cells.forEach { cell ->
+                                            Text(cell, fontSize = 12.sp, modifier = Modifier.weight(1f),
+                                                color = Color(0xFF333333))
+                                        }
+                                    }
+                                    HorizontalDivider(color = Color(0xFFEEEEEE))
+                                } else {
+                                    Text(line, fontSize = 13.sp, color = Color(0xFF333333),
+                                        modifier = Modifier.padding(vertical = 2.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                if (planImagePath.isBlank() && planText.isBlank()) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                        Text("点击「导入计划」添加你的备考计划\n支持图片、PDF、Word、Excel", fontSize = 13.sp,
+                            color = Color(0xFFBDBDBD), textAlign = TextAlign.Center)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -1178,13 +1304,10 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 vm.questionBanks.forEach { bank ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        OutlinedTextField(
+                        NumberStepper(
                             value = targets[bank.id] ?: "10",
-                            onValueChange = { targets[bank.id] = it.filter { c -> c.isDigit() } },
-                            modifier = Modifier.width(72.dp),
-                            singleLine = true,
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                            suffix = { Text("题", fontSize = 12.sp) }
+                            onValueChange = { targets[bank.id] = it },
+                            min = 0, max = 100, suffix = ""
                         )
                     }
                 }
@@ -1227,12 +1350,18 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 
 // ==================== 制作音频（全屏页面） ====================
 // TTS 音色选项
-data class VoiceOption(val id: String, val label: String, val voiceParam: String)
+data class VoiceOption(val id: String, val label: String, val tencentId: Int, val edgeVoice: String)
 private val voiceOptions = listOf(
-    VoiceOption("alex", "播音男声", "FunAudioLLM/CosyVoice2-0.5B:alex"),
-    VoiceOption("bella", "清纯女声", "FunAudioLLM/CosyVoice2-0.5B:bella"),
-    VoiceOption("claire", "干练女声", "FunAudioLLM/CosyVoice2-0.5B:claire"),
-    VoiceOption("david", "磁性男声", "FunAudioLLM/CosyVoice2-0.5B:david")
+    VoiceOption("female1", "温柔女声", 101001, "zh-CN-XiaoxiaoNeural"),      // 腾讯:智瑜情感女声 / Edge:晓晓
+    VoiceOption("female2", "知性女声", 101011, "zh-CN-XiaohanNeural"),       // 腾讯:智燕新闻女声 / Edge:晓涵
+    VoiceOption("male2", "沉稳男声", 101013, "zh-CN-YunjianNeural")         // 腾讯:智辉新闻男声 / Edge:云健
+)
+
+// 参与音频制作的题型（排除单选题、多选题）
+private val ttsQuestionTypes = setOf(
+    QuestionType.CASE_ANALYSIS, QuestionType.SHORT_ANSWER, QuestionType.ESSAY,
+    QuestionType.COMPREHENSIVE, QuestionType.VOCAB_PHRASE, QuestionType.LONG_SENTENCE,
+    QuestionType.COMPOSITION
 )
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -1318,17 +1447,7 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         ) {
                             Text("题目数量", fontSize = 14.sp, color = Color(0xFF666666))
                             Spacer(Modifier.width(12.dp))
-                            OutlinedTextField(
-                                value = questionCount,
-                                onValueChange = { questionCount = it.filter { c -> c.isDigit() } },
-                                singleLine = true,
-                                modifier = Modifier.width(72.dp),
-                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                                ),
-                                suffix = { Text("题", fontSize = 12.sp, color = Color(0xFFBDBDBD)) },
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
-                            )
+                            NumberStepper(value = questionCount, onValueChange = { questionCount = it }, min = 1, max = 100)
                             Spacer(Modifier.weight(1f))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("乱序", fontSize = 14.sp, color = Color(0xFF666666))
@@ -1364,6 +1483,13 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                 )
                             }
                         }
+
+                        // 显示可用题目数
+                        Spacer(Modifier.height(8.dp))
+                        val availableCount = vm.getQuestionsForBank(selectedBankId).count { it.type in ttsQuestionTypes && !it.ttsGenerated }
+                        val totalSubjective = vm.getQuestionsForBank(selectedBankId).count { it.type in ttsQuestionTypes }
+                        Text("主观题: ${totalSubjective}题，待制作: ${availableCount}题",
+                            fontSize = 11.sp, color = Color(0xFF999999))
                     }
                 }
 
@@ -1391,81 +1517,78 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 Button(
                     onClick = {
                     isGenerating = true
-                    progress = "初始化语音引擎..."
+                    progress = "准备中..."
                     val bankQuestions = vm.getQuestionsForBank(selectedBankId)
-                    val cnt = (questionCount.toIntOrNull() ?: 10).coerceAtMost(bankQuestions.size)
-                    val selected = if (shuffle) bankQuestions.shuffled().take(cnt) else bankQuestions.take(cnt)
                     val bank = vm.questionBanks.find { it.id == selectedBankId }
                     val bankName = bank?.name ?: "题库"
-                    val voiceParam = selectedVoice.voiceParam
+                    val voiceOpt = selectedVoice
+                    val cnt = (questionCount.toIntOrNull() ?: 10)
+
+                    // 只选主观题，跳过已生成的
+                    val pendingQuestions = bankQuestions.filter { it.type in ttsQuestionTypes && !it.ttsGenerated }
+                    val selected = if (shuffle) {
+                        pendingQuestions.shuffled().take(cnt)
+                    } else {
+                        pendingQuestions.take(cnt)
+                    }
+
+                    if (selected.isEmpty()) {
+                        isGenerating = false; progress = ""
+                        Toast.makeText(context, "所有题目都已生成过音频", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    // 计算题号（在完整题库中的位置）
+                    val startIdx = bankQuestions.indexOf(selected.first()) + 1
+                    val endIdx = bankQuestions.indexOf(selected.last()) + 1
+                    val dateStr = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.CHINA).format(java.util.Date())
+
+                    val fullText = StringBuilder()
+                    selected.forEachIndexed { idx, q ->
+                        val qIdx = bankQuestions.indexOf(q) + 1
+                        fullText.append("第${qIdx}题。${q.content}。答案：${q.answer}。")
+                    }
+
+                    val audioDir = java.io.File(context.getExternalFilesDir(null), "audio")
+                    audioDir.mkdirs()
 
                     scope.launch(Dispatchers.IO) {
-                        val fullText = StringBuilder()
-                        selected.forEachIndexed { idx, q ->
-                            fullText.append("第${idx + 1}题。${q.content}。答案：${q.answer}。")
-                        }
-                        if (fullText.isEmpty()) {
-                            withContext(Dispatchers.Main) { isGenerating = false; progress = "" }
-                            return@launch
-                        }
-
-                        val dir = java.io.File(context.getExternalFilesDir(null), "audio")
-                        dir.mkdirs()
-                        val fileName = "${bankName}_${cnt}q.mp3"
-                        val file = java.io.File(dir, fileName)
-
-                        withContext(Dispatchers.Main) { progress = "正在生成音频（${selectedVoice.label}）..." }
-                        var apiSuccess = false
                         try {
-                            val body = com.google.gson.Gson().toJson(mapOf(
-                                "model" to "FunAudioLLM/CosyVoice2-0.5B",
-                                "input" to fullText.toString().take(5000),
-                                "voice" to voiceParam,
-                                "response_format" to "mp3"
-                            ))
-                            val response = okhttp3.OkHttpClient.Builder()
-                                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-                                .build()
-                                .newCall(okhttp3.Request.Builder()
-                                    .url("${AiService.apiBaseUrl}/audio/speech")
-                                    .addHeader("Authorization", "Bearer ${AiService.apiKey}")
-                                    .addHeader("Content-Type", "application/json")
-                                    .post(body.toRequestBody("application/json".toMediaType()))
-                                    .build()).execute()
-                            if (response.isSuccessful && response.body != null) {
-                                response.body!!.byteStream().use { input ->
-                                    file.outputStream().use { output -> input.copyTo(output) }
-                                }
-                                apiSuccess = file.length() > 100
-                            }
-                        } catch (_: Exception) {}
+                            withContext(Dispatchers.Main) { progress = "正在生成音频..." }
+                            val audioBytes = tencentTtsWithFallback(fullText.toString(), voiceOpt)
 
-                        if (apiSuccess) {
+                            if (audioBytes != null && audioBytes.isNotEmpty()) {
+                                val durationSec = audioBytes.size / 2000
+                                val durationStr = if (durationSec >= 60) "${durationSec / 60}m${durationSec % 60}s" else "${durationSec}s"
+                                val fileName = "${bankName}-${startIdx}到${endIdx}题-${durationStr}-${dateStr}.mp3"
+                                val audioFile = java.io.File(audioDir, fileName)
+                                audioFile.writeBytes(audioBytes)
+
+                                // 保存元数据（题目ID列表 + 每题字符数用于进度条标记）
+                                val metaFile = java.io.File(audioDir, "$fileName.meta")
+                                val questionIds = selected.map { it.id }
+                                val charCounts = selected.map { q -> "第${bankQuestions.indexOf(q)+1}题。${q.content}。答案：${q.answer}。".length }
+                                val meta = mapOf("questionIds" to questionIds, "charCounts" to charCounts)
+                                metaFile.writeText(com.google.gson.Gson().toJson(meta))
+
+                                withContext(Dispatchers.Main) {
+                                    vm.markTtsGenerated(questionIds)
+                                    isGenerating = false; progress = ""
+                                    Toast.makeText(context, "音频已保存: $fileName\n可在「磨耳朵」中播放", Toast.LENGTH_LONG).show()
+                                    onDismiss()
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    isGenerating = false; progress = ""
+                                    Toast.makeText(context, "音频生成失败，请检查网络连接", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("PsyMap-TTS", "TTS exception", e)
                             withContext(Dispatchers.Main) {
                                 isGenerating = false; progress = ""
-                                Toast.makeText(context, "音频生成完成！可在磨耳朵中播放", Toast.LENGTH_LONG).show()
-                                onDismiss()
+                                Toast.makeText(context, "生成失败: ${e.message}", Toast.LENGTH_LONG).show()
                             }
-                            return@launch
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            progress = "API不可用，使用系统朗读..."
-                            val tts = android.speech.tts.TextToSpeech(context) { status ->
-                                if (status == android.speech.tts.TextToSpeech.SUCCESS) {}
-                            }
-                            delay(2000)
-                            tts.language = java.util.Locale.CHINESE
-                            tts.setSpeechRate(0.9f)
-                            tts.speak(fullText.toString(), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "psymap")
-                            val estimatedMs = (fullText.length * 250L).coerceIn(5000, 180000)
-                            delay(estimatedMs)
-                            tts.stop()
-                            tts.shutdown()
-                            isGenerating = false; progress = ""
-                            Toast.makeText(context, "朗读完成", Toast.LENGTH_SHORT).show()
-                            onDismiss()
                         }
                     }
                 },
@@ -1520,12 +1643,94 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         refreshFiles()
     }
 
-    DisposableEffect(Unit) {
-        onDispose { mediaPlayer?.release() }
+    var playProgress by remember { mutableStateOf(0f) }
+    var playDuration by remember { mutableStateOf(0) }
+    var playPosition by remember { mutableStateOf(0) }
+    var playlistIndex by remember { mutableStateOf(0) }
+    var playlist by remember { mutableStateOf(listOf<java.io.File>()) }
+
+    // 更新播放进度
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            try {
+                val mp = mediaPlayer
+                if (mp != null && mp.isPlaying) {
+                    playPosition = mp.currentPosition
+                    playDuration = mp.duration
+                    playProgress = if (playDuration > 0) playPosition.toFloat() / playDuration else 0f
+                }
+            } catch (_: Exception) {}
+            kotlinx.coroutines.delay(500)
+        }
+    }
+
+    var chapterMarkers by remember { mutableStateOf(listOf<Float>()) }  // 每题开始位置（0-1）
+
+    fun playNext(index: Int) {
+        if (index >= playlist.size) { isPlaying = false; currentPlaying = ""; playProgress = 0f; chapterMarkers = emptyList(); return }
+        playlistIndex = index
+        currentPlaying = playlist[index].nameWithoutExtension
+        // 加载章节标记
+        val metaFile = java.io.File(audioDir, "${playlist[index].name}.meta")
+        chapterMarkers = try {
+            if (metaFile.exists()) {
+                val meta = com.google.gson.Gson().fromJson<Map<String, Any>>(
+                    metaFile.readText(), object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val counts = (meta["charCounts"] as? List<Double>)?.map { it.toInt() } ?: emptyList()
+                if (counts.size > 1) {
+                    val total = counts.sum().toFloat()
+                    val markers = mutableListOf<Float>()
+                    var cumulative = 0
+                    for (i in 0 until counts.size - 1) {
+                        cumulative += counts[i]
+                        markers.add(cumulative / total)
+                    }
+                    android.util.Log.d("PsyMap-TTS", "Chapter markers: $markers (${counts.size} questions)")
+                    markers
+                } else emptyList()
+            } else emptyList()
+        } catch (_: Exception) { emptyList() }
+
+        mediaPlayer = null  // 使用 Service 播放
+        // 使用前台 Service 播放（不会被系统回收）
+        val svcIntent = android.content.Intent(context, AudioPlaybackService::class.java).apply {
+            action = "PLAY"
+            putStringArrayListExtra("paths", ArrayList(playlist.map { it.absolutePath }))
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            context.startForegroundService(svcIntent)
+        } else {
+            context.startService(svcIntent)
+        }
+        // 等 Service 启动后设置 index
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            AudioPlaybackService.instance?.let { svc ->
+                svc.playlist = playlist.map { it.absolutePath }
+                if (index > 0) svc.playFile(index)
+            }
+        }, 500)
+        isPlaying = true
+    }
+
+    // 从 Service 同步播放状态
+    LaunchedEffect(isPlaying) {
+        while (true) {
+            val svc = AudioPlaybackService.instance
+            if (svc != null) {
+                isPlaying = svc.isPlaying
+                currentPlaying = svc.currentFileName
+                playlistIndex = svc.currentIndex
+                playDuration = svc.duration
+                playPosition = svc.currentPosition
+                playProgress = if (playDuration > 0) playPosition.toFloat() / playDuration else 0f
+            }
+            kotlinx.coroutines.delay(500)
+        }
     }
 
     Dialog(
-        onDismissRequest = { mediaPlayer?.release(); onDismiss() },
+        onDismissRequest = { onDismiss() },  // 不停止播放，允许后台继续
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Scaffold(
@@ -1533,7 +1738,7 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 TopAppBar(
                     title = { Text("磨耳朵", fontWeight = FontWeight.Bold) },
                     navigationIcon = {
-                        IconButton(onClick = { mediaPlayer?.release(); onDismiss() }) {
+                        IconButton(onClick = { onDismiss() }) {  // 返回不停止播放
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                         }
                     },
@@ -1552,17 +1757,98 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         shadowElevation = 8.dp,
                         color = Color.White
                     ) {
-                        Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 48.dp)) {
-                            if (isPlaying) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color(0xFFFF8A00))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("正在播放: $currentPlaying", fontSize = 12.sp, color = Color(0xFFFF8A00))
+                        Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 48.dp)) {
+                            if (isPlaying || currentPlaying.isNotBlank()) {
+                                // 播放进度条
+                                Text(currentPlaying, fontSize = 12.sp, color = Color(0xFFFF8A00), maxLines = 1,
+                                    modifier = Modifier.fillMaxWidth())
+                                Spacer(Modifier.height(4.dp))
+                                // 进度条 + 题目分隔标记
+                                Box(modifier = Modifier.fillMaxWidth().height(24.dp)) {
+                                    Slider(
+                                        value = playProgress,
+                                        onValueChange = { newVal ->
+                                            playProgress = newVal
+                                            AudioPlaybackService.instance?.seekTo((newVal * playDuration).toInt())
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(24.dp),
+                                        colors = SliderDefaults.colors(thumbColor = Color(0xFFFF8A00), activeTrackColor = Color(0xFFFF8A00))
+                                    )
+                                    // 题目分隔竖线标记
+                                    if (chapterMarkers.isNotEmpty()) {
+                                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
+                                            val trackWidth = size.width - 40f
+                                            val offsetX = 20f
+                                            chapterMarkers.forEach { pos ->
+                                                val x = offsetX + pos * trackWidth
+                                                drawLine(
+                                                    color = androidx.compose.ui.graphics.Color(0xFFD32F2F),
+                                                    start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                                    end = androidx.compose.ui.geometry.Offset(x, size.height),
+                                                    strokeWidth = 3f
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // 旧音频无标记数据提示
+                                    }
                                 }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    fun fmtTime(ms: Int): String { val s = ms / 1000; return "${s / 60}:%02d".format(s % 60) }
+                                    Text(fmtTime(playPosition), fontSize = 11.sp, color = Color.Gray)
+                                    Text("${playlistIndex + 1}/${playlist.size}", fontSize = 11.sp, color = Color.Gray)
+                                    Text(fmtTime(playDuration), fontSize = 11.sp, color = Color.Gray)
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                // 播放控制按钮
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = {
+                                        val svc = AudioPlaybackService.instance
+                                        if (svc != null && playlistIndex > 0) {
+                                            svc.playFile(playlistIndex - 1)
+                                            // 重新加载章节标记
+                                            if (playlistIndex - 1 < playlist.size) {
+                                                val mf = java.io.File(audioDir, "${playlist[playlistIndex - 1].name}.meta")
+                                                // markers will update via LaunchedEffect
+                                            }
+                                        }
+                                    }, enabled = playlistIndex > 0) {
+                                        Icon(Icons.Default.SkipPrevious, contentDescription = "上一首", modifier = Modifier.size(32.dp))
+                                    }
+                                    Spacer(Modifier.width(16.dp))
+                                    IconButton(onClick = {
+                                        val svc = AudioPlaybackService.instance
+                                        if (svc != null) {
+                                            if (svc.isPlaying) {
+                                                svc.mediaPlayer?.pause(); svc.isPlaying = false
+                                            } else {
+                                                svc.mediaPlayer?.start(); svc.isPlaying = true
+                                            }
+                                            isPlaying = svc.isPlaying
+                                        }
+                                    }) {
+                                        Icon(if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                            contentDescription = if (isPlaying) "暂停" else "播放",
+                                            modifier = Modifier.size(48.dp), tint = Color(0xFFFF8A00))
+                                    }
+                                    Spacer(Modifier.width(16.dp))
+                                    IconButton(onClick = {
+                                        val svc = AudioPlaybackService.instance
+                                        if (svc != null && playlistIndex < playlist.size - 1) svc.playFile(playlistIndex + 1)
+                                    }, enabled = playlistIndex < playlist.size - 1) {
+                                        Icon(Icons.Default.SkipNext, contentDescription = "下一首", modifier = Modifier.size(32.dp))
+                                    }
+                                    Spacer(Modifier.width(16.dp))
+                                    IconButton(onClick = {
+                                        val stopIntent = android.content.Intent(context, AudioPlaybackService::class.java).apply { action = "STOP" }
+                                        context.startService(stopIntent)
+                                        isPlaying = false; currentPlaying = ""; playProgress = 0f; chapterMarkers = emptyList()
+                                    }) {
+                                        Icon(Icons.Default.Stop, contentDescription = "停止", modifier = Modifier.size(28.dp), tint = Color(0xFFD32F2F))
+                                    }
+                                }
+                            } else {
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1592,31 +1878,17 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 
                                 Button(
                                     onClick = {
-                                        if (isPlaying) {
-                                            mediaPlayer?.stop(); mediaPlayer?.release(); mediaPlayer = null
-                                            isPlaying = false; currentPlaying = ""
-                                        } else {
-                                            val filesToPlay = audioFiles.filter { it.name in selectedFiles }
-                                            if (filesToPlay.isEmpty()) return@Button
+                                        playlist = audioFiles.filter { it.name in selectedFiles }
+                                        if (playlist.isNotEmpty()) {
                                             isPlaying = true
-                                            fun playNext(index: Int) {
-                                                if (index >= filesToPlay.size) { isPlaying = false; currentPlaying = ""; return }
-                                                currentPlaying = filesToPlay[index].nameWithoutExtension
-                                                mediaPlayer?.release()
-                                                mediaPlayer = android.media.MediaPlayer().apply {
-                                                    setDataSource(filesToPlay[index].absolutePath)
-                                                    prepare(); start()
-                                                    setOnCompletionListener { playNext(index + 1) }
-                                                }
-                                            }
                                             playNext(0)
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp),
-                                    enabled = selectedFiles.isNotEmpty() || isPlaying,
+                                    enabled = selectedFiles.isNotEmpty() && !isPlaying,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00))
-                                ) { Text(if (isPlaying) "⏹ 停止" else "▶ 播放", fontSize = 13.sp) }
+                                ) { Text("▶ 播放", fontSize = 13.sp) }
                             }
                         }
                     }
@@ -1637,6 +1909,8 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             Text("暂无音频文件", color = Color(0xFF999999), fontSize = 15.sp)
                             Spacer(Modifier.height(4.dp))
                             Text("使用「制作音频」生成 或 点击「导入音频」", color = Color(0xFFBDBDBD), fontSize = 12.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Text("音频目录: ${audioDir.absolutePath}", color = Color(0xFFBDBDBD), fontSize = 10.sp)
                         }
                     }
                 } else {
@@ -1699,6 +1973,25 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 Button(
                     onClick = {
                         selectedFiles.forEach { name ->
+                            // 读取元数据恢复 ttsGenerated 标记
+                            val metaFile = java.io.File(audioDir, "$name.meta")
+                            if (metaFile.exists()) {
+                                try {
+                                    val meta = com.google.gson.Gson().fromJson<Map<String, Any>>(
+                                        metaFile.readText(),
+                                        object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                                    )
+                                    @Suppress("UNCHECKED_CAST")
+                                    val ids = (meta["questionIds"] as? List<String>) ?: emptyList()
+                                    if (ids.isNotEmpty()) {
+                                        vm.questions = vm.questions.map {
+                                            if (it.id in ids) it.copy(ttsGenerated = false) else it
+                                        }
+                                        vm.saveQuestionsPublic()
+                                    }
+                                    metaFile.delete()
+                                } catch (_: Exception) {}
+                            }
                             java.io.File(audioDir, name).delete()
                         }
                         selectedFiles = emptySet()
@@ -1806,6 +2099,11 @@ fun AiPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 计划：{"政治":17,"英语":30,"普心":15}
 注意：计划部分必须单独一行，以"计划："开头"""
 
+                                if (!vm.aiEnabled) {
+                                    isLoading = false
+                                    aiResponse = "请在设置中启用AI功能"
+                                    return@Button
+                                }
                                 AiService.chatCompletion(prompt, userInput, { result ->
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                                         isLoading = false
@@ -1877,759 +2175,914 @@ fun AiPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     }
 }
 
-// ==================== 更多知识（全屏 Tab 页） ====================
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MoreKnowledgeDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("🧠 心理学知识", "📰 英文泛读")
+// ==================== 考一考（模拟考试模块） ====================
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+/** 根据题型返回每题分钟数 */
+private fun QuestionType.minutesPerQuestion(): Int = when (this) {
+    QuestionType.VOCAB_PHRASE, QuestionType.LONG_SENTENCE,
+    QuestionType.SINGLE_CHOICE, QuestionType.MULTI_CHOICE -> 1
+    QuestionType.SHORT_ANSWER -> 5
+    QuestionType.ESSAY -> 10
+    QuestionType.CASE_ANALYSIS, QuestionType.COMPOSITION, QuestionType.COMPREHENSIVE -> 15
+}
+
+/** 根据时间和比例生成考试题目 */
+private fun generateExamQuestions(
+    allQuestions: List<Question>,
+    totalMinutes: Int,
+    includeTypes: Set<QuestionType>
+): List<Question> {
+    val available = allQuestions.filter { it.type in includeTypes }.shuffled()
+    val fastTypes = setOf(QuestionType.VOCAB_PHRASE, QuestionType.LONG_SENTENCE, QuestionType.SINGLE_CHOICE, QuestionType.MULTI_CHOICE)
+    val midTypes = setOf(QuestionType.SHORT_ANSWER)
+    val slowTypes = setOf(QuestionType.ESSAY, QuestionType.CASE_ANALYSIS, QuestionType.COMPOSITION, QuestionType.COMPREHENSIVE)
+    val fastMinutes = (totalMinutes * 0.5).toInt()
+    val midMinutes = (totalMinutes * 0.3).toInt()
+    val slowMinutes = totalMinutes - fastMinutes - midMinutes
+
+    fun pickQuestions(pool: List<Question>, maxMinutes: Int): List<Question> {
+        val result = mutableListOf<Question>()
+        var usedMinutes = 0
+        for (q in pool) {
+            val cost = q.type.minutesPerQuestion()
+            if (usedMinutes + cost <= maxMinutes) { result.add(q); usedMinutes += cost }
+        }
+        return result
+    }
+    return (pickQuestions(available.filter { it.type in fastTypes }, fastMinutes) +
+            pickQuestions(available.filter { it.type in midTypes }, midMinutes) +
+            pickQuestions(available.filter { it.type in slowTypes }, slowMinutes)).shuffled()
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
+    var selectedBankIds by remember { mutableStateOf(vm.questionBanks.map { it.id }.toSet()) }
+    var totalMinutes by remember { mutableStateOf("60") }
+    var selectedTypes by remember { mutableStateOf(QuestionType.entries.toSet()) }
+    var showExamSession by remember { mutableStateOf(false) }
+    var examQuestions by remember { mutableStateOf(listOf<Question>()) }
+
+    if (showExamSession && examQuestions.isNotEmpty()) {
+        ExamSessionPage(vm = vm, questions = examQuestions,
+            totalMinutes = totalMinutes.toIntOrNull() ?: 60,
+            onFinish = { showExamSession = false; onDismiss() })
+        return
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = { Text("更多知识", fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-                )
-            },
-            containerColor = Color(0xFFF5F5F5)
+                TopAppBar(title = { Text("考一考", fontWeight = FontWeight.Bold) },
+                    navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, contentDescription = "返回") } })
+            }
         ) { padding ->
-            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = Color.White,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title, fontSize = 14.sp) }
-                        )
-                    }
-                }
-
-                when (selectedTab) {
-                    0 -> PsychologyKnowledgeContent(vm = vm)
-                    1 -> EnglishReadingContent(vm = vm)
-                }
-            }
-        }
-    }
-}
-
-// ==================== 心理学知识 ====================
-// 心理学知识 — 许燕《人格心理学》大纲
-private val psyChapters = listOf(
-    "经典精神分析学派" to "弗洛伊德的经典精神分析理论、荣格的分析心理学理论、阿德勒的个体心理学理论",
-    "新精神分析学派" to "霍妮的人格理论、弗洛姆的人格理论、沙利文的人格理论、埃里克森的人格理论、客体关系理论",
-    "行为主义学派" to "华生的人格理论、斯金纳的人格理论",
-    "人本主义与积极心理学" to "马斯洛的人格理论、罗杰斯的人格理论、积极心理学",
-    "人格特质理论" to "奥尔波特的特质理论、卡特尔的特质因素论、艾森克的人格理论、五因素模型",
-    "认知与社会认知学派" to "凯利的个人建构理论、罗特的社会认知论、班杜拉的社会认知论"
-)
-
-// 心理学知识内容（供 tab 页使用）
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
-@Composable
-fun PsychologyKnowledgeContent(vm: PsyMapViewModel) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("psymap_psy_knowledge", android.content.Context.MODE_PRIVATE) }
-    var articles by remember { mutableStateOf(loadPsyArticles(prefs)) }
-    var isLoading by remember { mutableStateOf(false) }
-    var userInput by remember { mutableStateOf("") }
-    var selectedChapter by remember { mutableStateOf(psyChapters[0]) }
-    var showChapterDropdown by remember { mutableStateOf(false) }
-    val hasUserInput = userInput.isNotBlank()
-
-    fun generate() {
-        isLoading = true
-        val prompt = if (hasUserInput) {
-            """你是北师大心理学考研辅导专家。用户输入了题目，请润色题目并生成完整答案。
-答案按踩分点逐条列出，每个踩分点2-3句展开，贴合北师大MAP考研判卷规则，使用markdown格式。
-返回纯JSON数组：[{"title":"润色后的题目","answer":"## 答案\n\n### 1. 踩分点一\n内容..."}]
-用户题目：$userInput"""
-        } else {
-            """你是北师大心理学考研辅导专家。针对「${selectedChapter.first}」（${selectedChapter.second}）生成3道论述题。
-每道题含题目+完整答案（含踩分点），答案使用markdown格式。
-返回纯JSON数组：[{"title":"题目","answer":"## 答案\n\n### 1. 踩分点一\n内容..."}]"""
-        }
-        val chapter = if (hasUserInput) "自定义题目" else selectedChapter.first
-        AiService.chatCompletion(prompt, if (hasUserInput) userInput else "生成${chapter}论述题", { result ->
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                isLoading = false
-                try {
-                    val cleaned = result.replace(Regex("```(?:json)?\\s*"), "").replace(Regex("```\\s*"), "").trim()
-                    val list = com.google.gson.Gson().fromJson<List<Map<String, String>>>(cleaned,
-                        object : com.google.gson.reflect.TypeToken<List<Map<String, String>>>() {}.type)
-                    if (list != null) {
-                        val pinned = articles.filter { it["pinned"] == "true" && it["chapter"] == chapter }
-                        val newItems = list.map { mutableMapOf("title" to (it["title"] ?: ""), "answer" to (it["answer"] ?: ""), "chapter" to chapter, "pinned" to "false") }
-                        articles = articles.filter { it["chapter"] != chapter } + pinned + newItems
-                        savePsyArticles(prefs, articles)
-                    }
-                } catch (_: Exception) {}
-            }
-        }, { _ -> android.os.Handler(android.os.Looper.getMainLooper()).post { isLoading = false } })
-    }
-
-    val displayChapter = if (hasUserInput) "自定义题目" else selectedChapter.first
-    val chapterArticles = articles.filter { it["chapter"] == displayChapter }
-
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        // 用户输入框
-        OutlinedTextField(value = userInput, onValueChange = { userInput = it },
-            label = { Text("输入题目（论述题/案例分析/简答题）") },
-            placeholder = { Text("如：试述弗洛伊德的人格结构理论及其临床意义") },
-            modifier = Modifier.fillMaxWidth(), maxLines = 4)
-        Spacer(Modifier.height(12.dp))
-
-        // 学派下拉选择（输入框为空时可用）
-        if (!hasUserInput) {
-            ExposedDropdownMenuBox(expanded = showChapterDropdown, onExpandedChange = { showChapterDropdown = it }) {
-                OutlinedTextField(value = selectedChapter.first, onValueChange = {}, readOnly = true,
-                    label = { Text("选择学派") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showChapterDropdown) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(), singleLine = true)
-                ExposedDropdownMenu(expanded = showChapterDropdown, onDismissRequest = { showChapterDropdown = false }) {
-                    psyChapters.forEach { ch ->
-                        DropdownMenuItem(
-                            text = { Column { Text(ch.first, fontSize = 14.sp); Text(ch.second, fontSize = 11.sp, color = Color(0xFF999999), maxLines = 1) } },
-                            onClick = { selectedChapter = ch; showChapterDropdown = false },
-                            leadingIcon = { if (selectedChapter == ch) Icon(Icons.Default.Check, null, tint = Color(0xFFEF6C00), modifier = Modifier.size(18.dp)) }
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-        }
-
-        // AI生成按钮
-        Button(onClick = { generate() }, enabled = !isLoading, shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00))
-        ) { Text(if (isLoading) "生成中..." else "AI 一键生成题目及答案", fontSize = 14.sp) }
-        Spacer(Modifier.height(16.dp))
-
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color(0xFFFF8A00))
-                    Spacer(Modifier.height(8.dp)); Text("AI正在生成...", fontSize = 13.sp, color = Color(0xFF999999))
-                }
-            }
-        }
-        if (chapterArticles.isEmpty() && !isLoading) {
-            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("输入题目或选择学派后点击生成", color = Color(0xFF999999), fontSize = 14.sp)
-            }
-        }
-
-        chapterArticles.forEachIndexed { idx, article ->
-            val isPinned = article["pinned"] == "true"
-            var expanded by remember { mutableStateOf(false) }
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = if (isPinned) Color(0xFFFFF8E1) else Color.White),
-                elevation = CardDefaults.cardElevation(1.dp)) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Text("Q${idx + 1}. ", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF6C00))
-                        Text(article["title"] ?: "", fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 20.sp, modifier = Modifier.weight(1f))
-                        IconButton(onClick = {
-                            val gi = articles.indexOf(article)
-                            if (gi >= 0) { val u = articles.toMutableList(); u[gi] = article.toMutableMap().apply { put("pinned", if (isPinned) "false" else "true") }; articles = u; savePsyArticles(prefs, articles) }
-                        }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.PushPin, null, tint = if (isPinned) Color(0xFFEF6C00) else Color(0xFFCCCCCC), modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    TextButton(onClick = { expanded = !expanded }, modifier = Modifier.padding(top = 4.dp)) {
-                        Text(if (expanded) "收起答案 ▲" else "查看答案 ▼", fontSize = 12.sp, color = Color(0xFF1976D2))
-                    }
-                    if (expanded) {
-                        var showAddDialog by remember { mutableStateOf(false) }
-                        HorizontalDivider(color = Color(0xFFF0F0F0), modifier = Modifier.padding(vertical = 4.dp))
-                        SimpleMarkdownText(article["answer"] ?: "")
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = { showAddDialog = true },
-                            shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("加入题库", fontSize = 12.sp)
-                        }
-                        if (showAddDialog) {
-                            AddToBankDialog(vm = vm, title = article["title"] ?: "", answer = article["answer"] ?: "",
-                                defaultType = QuestionType.ESSAY, onDismiss = { showAddDialog = false })
-                        }
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-    }
-}
-
-// ==================== 加入题库选择弹窗（通用） ====================
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun AddToBankDialog(
-    vm: PsyMapViewModel,
-    title: String,
-    answer: String,
-    defaultType: QuestionType = QuestionType.ESSAY,
-    onDismiss: () -> Unit
-) {
-    var selectedBankId by remember { mutableStateOf(vm.questionBanks.firstOrNull()?.id ?: "") }
-    val selectedBank = vm.questionBanks.find { it.id == selectedBankId }
-    val availableTypes = selectedBank?.subject?.availableQuestionTypes() ?: QuestionType.entries.toList()
-    var selectedType by remember { mutableStateOf(defaultType) }
-    var tagFrequent by remember { mutableStateOf(false) }
-    var tagMemorize by remember { mutableStateOf(true) }
-    val context = LocalContext.current
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("加入题库") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text("选择题库", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(4.dp))
+            Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                Text("选择题库", fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                Spacer(Modifier.height(8.dp))
                 vm.questionBanks.forEach { bank ->
-                    Row(modifier = Modifier.fillMaxWidth().clickable { selectedBankId = bank.id }.padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selectedBankId == bank.id, onClick = { selectedBankId = bank.id })
-                        Spacer(Modifier.width(4.dp))
-                        Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp)
+                    val count = vm.getQuestionsForBank(bank.id).size
+                    Row(modifier = Modifier.fillMaxWidth().clickable {
+                        selectedBankIds = if (bank.id in selectedBankIds) selectedBankIds - bank.id else selectedBankIds + bank.id
+                    }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = bank.id in selectedBankIds,
+                            onCheckedChange = { selectedBankIds = if (it) selectedBankIds + bank.id else selectedBankIds - bank.id })
+                        Text("${bank.subject.emoji} ${bank.name} (${count}题)", fontSize = 14.sp)
                     }
                 }
+                Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(16.dp))
+                Text("考试时间", fontWeight = FontWeight.Medium, fontSize = 15.sp)
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NumberStepper(value = totalMinutes, onValueChange = { totalMinutes = it }, min = 10, max = 180, suffix = "")
+                    Spacer(Modifier.width(8.dp))
+                    Text("分钟", fontSize = 14.sp, color = Color.Gray)
+                }
+                Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(16.dp))
+                Text("题型选择", fontWeight = FontWeight.Medium, fontSize = 15.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("题目分类", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    availableTypes.forEach { type ->
-                        FilterChip(selected = selectedType == type, onClick = { selectedType = type },
-                            label = { Text(type.label, fontSize = 11.sp) })
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    QuestionType.entries.forEach { type ->
+                        FilterChip(selected = type in selectedTypes,
+                            onClick = { selectedTypes = if (type in selectedTypes) selectedTypes - type else selectedTypes + type },
+                            label = { Text(type.label, fontSize = 12.sp) })
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Text("标签", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = tagFrequent, onClick = { tagFrequent = !tagFrequent },
-                        label = { Text("🔥 常考", fontSize = 11.sp) })
-                    FilterChip(selected = tagMemorize, onClick = { tagMemorize = !tagMemorize },
-                        label = { Text("📖 多背", fontSize = 11.sp) })
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                if (selectedBankId.isNotBlank()) {
-                    vm.addQuestion(selectedBankId, title, answer, selectedType, isMemorize = tagMemorize)
-                    val lastQ = vm.questions.lastOrNull()
-                    if (lastQ != null && tagFrequent) vm.toggleFrequent(lastQ.id)
-                    val bankName = vm.questionBanks.find { it.id == selectedBankId }?.name ?: ""
-                    Toast.makeText(context, "已加入「$bankName」${selectedType.label}", Toast.LENGTH_SHORT).show()
-                    onDismiss()
-                }
-            }, shape = RoundedCornerShape(8.dp)) { Text("加入题库") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
-}
-
-private fun loadPsyArticles(prefs: android.content.SharedPreferences): List<Map<String, String>> {
-    val json = prefs.getString("psy_articles", "[]") ?: "[]"
-    return try {
-        com.google.gson.Gson().fromJson(json, object : com.google.gson.reflect.TypeToken<List<Map<String, String>>>() {}.type) ?: emptyList()
-    } catch (_: Exception) { emptyList() }
-}
-
-private fun savePsyArticles(prefs: android.content.SharedPreferences, articles: List<Map<String, String>>) {
-    prefs.edit().putString("psy_articles", com.google.gson.Gson().toJson(articles)).apply()
-}
-
-// ==================== 英文泛读 ====================
-// 英文泛读内容（供 tab 页使用）
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EnglishReadingContent(vm: PsyMapViewModel) {
-    val context = LocalContext.current
-    val prefs = context.getSharedPreferences("psymap_reading", android.content.Context.MODE_PRIVATE)
-    var articles by remember { mutableStateOf(loadSavedArticles(prefs)) }
-    var isLoading by remember { mutableStateOf(false) }
-    var selectedArticle by remember { mutableStateOf<Map<String, String>?>(null) }
-
-    fun fetchArticles() {
-        isLoading = true
-        val prompt = """你是考研英语阅读材料推荐专家。请推荐5篇适合考研英语阅读训练的英文文章。
-来源期刊：The Economist, The Guardian, Scientific American, The New York Times, The Atlantic, Nature, Science
-题材分布：心理学类1篇、政经类1篇、社会学类1篇、科技类1篇、文化教育类1篇。
-严格要求：直接提供完整原文（400-600词），不要改写概括拼接，保留段落结构用\n\n分隔，提供中文翻译和URL。
-返回纯JSON数组：[{"title":"标题","title_cn":"中文标题","source":"期刊 · 题材","url":"https://...","content_en":"原文","content_cn":"翻译"}]"""
-        AiService.chatCompletion(prompt, "生成5篇英文泛读文章", { result ->
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                isLoading = false
-                try {
-                    val cleaned = result.replace(Regex("```(?:json)?\\s*"), "").replace(Regex("```\\s*"), "").trim()
-                    val list = com.google.gson.Gson().fromJson<List<Map<String, String>>>(cleaned,
-                        object : com.google.gson.reflect.TypeToken<List<Map<String, String>>>() {}.type)
-                    val pinned = articles.filter { it["pinned"] == "true" }
-                    articles = pinned + (list?.map { it.toMutableMap().apply { put("pinned", "false") } } ?: emptyList())
-                    saveArticles(prefs, articles)
-                } catch (_: Exception) {}
-            }
-        }, { _ -> android.os.Handler(android.os.Looper.getMainLooper()).post { isLoading = false } })
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        // 获取文章按钮
-        Button(
-            onClick = { fetchArticles() },
-            enabled = !isLoading,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
-        ) { Text(if (isLoading) "加载中..." else "获取文章", fontSize = 14.sp) }
-
-        // 文章列表
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
-        ) {
-            if (articles.isEmpty() && !isLoading) {
-                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text("点击上方按钮获取英文泛读文章", color = Color(0xFF999999), fontSize = 14.sp)
-                }
-            }
-            articles.forEachIndexed { idx, article ->
-                val isPinned = article["pinned"] == "true"
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedArticle = article },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (isPinned) Color(0xFFFFF8E1) else Color.White),
-                    elevation = CardDefaults.cardElevation(1.dp)) {
-                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(article["title"] ?: "", fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                            Text(article["title_cn"] ?: "", fontSize = 12.sp, color = Color.Gray, maxLines = 1)
-                            Text(article["source"] ?: "", fontSize = 11.sp, color = Color(0xFF1976D2))
-                        }
-                        IconButton(onClick = {
-                            val updated = articles.toMutableList()
-                            updated[idx] = article.toMutableMap().apply { put("pinned", if (isPinned) "false" else "true") }
-                            articles = updated
-                            saveArticles(prefs, articles)
-                        }) {
-                            Icon(Icons.Default.PushPin, contentDescription = "Pin",
-                                tint = if (isPinned) Color(0xFFEF6C00) else Color.Gray, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-
-    selectedArticle?.let { article ->
-        ArticleDetailDialog(article = article, vm = vm, onDismiss = { selectedArticle = null })
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
-@Composable
-fun ArticleDetailDialog(article: Map<String, String>, vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
-    val prefs = remember { context.getSharedPreferences("psymap_marks", android.content.Context.MODE_PRIVATE) }
-    val articleKey = (article["title"] ?: "").hashCode().toString()
-
-    // 从持久化加载标记
-    var markedWords by remember {
-        val saved = prefs.getString("words_$articleKey", null)
-        mutableStateOf(if (saved.isNullOrBlank()) emptyList() else saved.split("|||").filter { it.isNotBlank() })
-    }
-    var markedSentences by remember {
-        val saved = prefs.getString("sents_$articleKey", null)
-        mutableStateOf(if (saved.isNullOrBlank()) emptyList() else saved.split("|||").filter { it.isNotBlank() })
-    }
-    // 多选删除模式
-    var deleteMode by remember { mutableStateOf(false) }
-    var selectedForDelete by remember { mutableStateOf(setOf<String>()) }
-
-    fun saveMarks() {
-        prefs.edit()
-            .putString("words_$articleKey", markedWords.joinToString("|||"))
-            .putString("sents_$articleKey", markedSentences.joinToString("|||"))
-            .apply()
-    }
-
-    fun getClipboardText(): String = clipboardManager.getText()?.text?.trim() ?: ""
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text(article["title_cn"] ?: "", fontSize = 16.sp, maxLines = 1) },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                        }
-                    }
-                )
-            },
-            bottomBar = {
-                // 底部操作栏：选中文字后点击标记
-                Surface(shadowElevation = 8.dp, color = Color.White) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                val text = getClipboardText()
-                                if (text.isNotBlank() && text.length <= 50) {
-                                    if (text !in markedWords) { markedWords = markedWords + text; saveMarks() }
-                                    Toast.makeText(context, "已标记词汇「$text」", Toast.LENGTH_SHORT).show()
-                                } else if (text.isBlank()) {
-                                    Toast.makeText(context, "请先长按选中文字并复制", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "词汇过长，请用右侧按钮标记为长难句", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF6C00))
-                        ) {
-                            Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("标记词汇", fontSize = 13.sp)
-                        }
-                        Button(
-                            onClick = {
-                                val text = getClipboardText()
-                                if (text.isNotBlank()) {
-                                    if (text !in markedSentences) { markedSentences = markedSentences + text; saveMarks() }
-                                    Toast.makeText(context, "已标记长难句", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "请先长按选中文字并复制", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
-                        ) {
-                            Icon(Icons.Default.FormatQuote, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("标记长难句", fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-        ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp)
-            ) {
-                // 来源 + URL
-                Text(article["source"] ?: "", fontSize = 12.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Medium)
-                val url = article["url"] ?: ""
-                if (url.isNotBlank()) {
-                    Text("🔗 $url", fontSize = 11.sp, color = Color(0xFF1976D2), maxLines = 1,
-                        modifier = Modifier.clickable {
-                            try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) } catch (_: Exception) {}
-                        },
-                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Text("💡 长按选中文字 → 复制 → 点击底部按钮标记", fontSize = 11.sp, color = Color(0xFFBDBDBD))
-                Spacer(Modifier.height(12.dp))
-
-                // 可选中的文本区域
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Column {
-                        // English 原文
-                        Text("English", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
-                        Spacer(Modifier.height(8.dp))
-                        val enContent = (article["content_en"] ?: "").replace("**", "")
-                        val enParagraphs = enContent.split("\n\n").filter { it.isNotBlank() }
-                        enParagraphs.forEachIndexed { idx, para ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (idx % 2 == 0) Color(0xFFF5F5F5) else Color(0xFFE8F5E9)
-                                ),
-                                elevation = CardDefaults.cardElevation(0.dp)
-                            ) {
-                                Text(
-                                    text = buildHighlightedText(para.trim(), markedWords),
-                                    fontSize = 14.sp, lineHeight = 22.sp,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-                        }
-                        if (enParagraphs.isEmpty()) {
-                            Text(enContent, fontSize = 14.sp, lineHeight = 22.sp)
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        // 中文翻译
-                        Text("中文翻译", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
-                        Spacer(Modifier.height(8.dp))
-                        val cnParagraphs = (article["content_cn"] ?: "").split("\n\n").filter { it.isNotBlank() }
-                        cnParagraphs.forEachIndexed { idx, para ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (idx % 2 == 0) Color(0xFFFFF8E1) else Color(0xFFFFF3E0)
-                                ),
-                                elevation = CardDefaults.cardElevation(0.dp)
-                            ) {
-                                Text(para.trim(), fontSize = 14.sp, lineHeight = 22.sp,
-                                    modifier = Modifier.padding(12.dp))
-                            }
-                        }
-                        if (cnParagraphs.isEmpty()) {
-                            Text(article["content_cn"] ?: "", fontSize = 14.sp, lineHeight = 22.sp)
-                        }
-                    }
-                }
-
-                // 标记的重点词汇（在 SelectionContainer 外）
-                if (markedWords.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("📝 重点词汇（点击加入题库）", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFFEF6C00), modifier = Modifier.weight(1f))
-                        if (deleteMode) {
-                            TextButton(onClick = {
-                                markedWords = markedWords.filter { it !in selectedForDelete }
-                                markedSentences = markedSentences.filter { it !in selectedForDelete }
-                                saveMarks(); selectedForDelete = emptySet(); deleteMode = false
-                            }) { Text("删除(${selectedForDelete.size})", color = Color(0xFFD32F2F), fontSize = 12.sp) }
-                            TextButton(onClick = { deleteMode = false; selectedForDelete = emptySet() }) { Text("取消", fontSize = 12.sp) }
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        markedWords.forEach { word ->
-                            var saved by remember { mutableStateOf(false) }
-                            val isSelected = word in selectedForDelete
-                            val bgColor = when {
-                                deleteMode && isSelected -> Color(0xFFFFCDD2)
-                                saved -> Color(0xFFE8F5E9)
-                                else -> Color(0xFFFFF3E0)
-                            }
-                            Card(
-                                modifier = Modifier.combinedClickable(
-                                    onClick = {
-                                        if (deleteMode) {
-                                            selectedForDelete = if (isSelected) selectedForDelete - word else selectedForDelete + word
-                                        } else {
-                                            val engBank = vm.questionBanks.find { it.subject == Subject.ENGLISH }
-                                            if (engBank != null) {
-                                                vm.addQuestion(engBank.id, word, "", QuestionType.VOCAB_PHRASE, isMemorize = true)
-                                                saved = true
-                                                Toast.makeText(context, "已保存「$word」→ 单词短语", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, "请先创建英语题库", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    onLongClick = { deleteMode = true; selectedForDelete = setOf(word) }
-                                ),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = bgColor),
-                                elevation = CardDefaults.cardElevation(0.dp)
-                            ) {
-                                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (saved) { Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)) }
-                                    Text(word, fontSize = 12.sp, color = if (deleteMode && isSelected) Color(0xFFD32F2F) else Color(0xFF333333))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 标记的长难句
-                if (markedSentences.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    Text("📖 长难句（点击加入题库，长按删除）", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1976D2))
-                    Spacer(Modifier.height(6.dp))
-                    markedSentences.forEachIndexed { idx, sentence ->
-                        var saved by remember { mutableStateOf(false) }
-                        val isSelected = sentence in selectedForDelete
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-                                .combinedClickable(
-                                    onClick = {
-                                        if (deleteMode) {
-                                            selectedForDelete = if (isSelected) selectedForDelete - sentence else selectedForDelete + sentence
-                                        } else {
-                                            val engBank = vm.questionBanks.find { it.subject == Subject.ENGLISH }
-                                            if (engBank != null) {
-                                                vm.addQuestion(engBank.id, sentence, "", QuestionType.LONG_SENTENCE, isMemorize = true)
-                                                saved = true
-                                                Toast.makeText(context, "已保存长难句 → 英语题库", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, "请先创建英语题库", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    onLongClick = { deleteMode = true; selectedForDelete = setOf(sentence) }
-                                ),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = when {
-                                    deleteMode && isSelected -> Color(0xFFFFCDD2)
-                                    saved -> Color(0xFFE8F5E9)
-                                    else -> Color(0xFFE3F2FD)
-                                }
-                            ),
-                            elevation = CardDefaults.cardElevation(0.dp)
-                        ) {
-                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.Top) {
-                                Text("${idx + 1}.", fontSize = 12.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.width(6.dp))
-                                Text(sentence, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f))
-                                if (saved) Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
+                Spacer(Modifier.height(16.dp))
+                val allQ = selectedBankIds.flatMap { vm.getQuestionsForBank(it) }
+                val minutes = totalMinutes.toIntOrNull() ?: 60
+                val previewQ = generateExamQuestions(allQ, minutes, selectedTypes)
+                Text("预估题数: ${previewQ.size} 题（可用: ${allQ.count { it.type in selectedTypes }}）", fontSize = 13.sp, color = Color.Gray)
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = { examQuestions = generateExamQuestions(allQ, minutes, selectedTypes); if (examQuestions.isNotEmpty()) showExamSession = true },
+                    enabled = previewQ.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00))
+                ) { Text("开始考试", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.height(24.dp))
             }
         }
     }
 }
 
-/** 在文本中高亮用户标记的词汇 */
-private fun buildHighlightedText(text: String, markedWords: List<String>): androidx.compose.ui.text.AnnotatedString {
-    if (markedWords.isEmpty()) return androidx.compose.ui.text.buildAnnotatedString { append(text) }
-    return androidx.compose.ui.text.buildAnnotatedString {
-        var pos = 0
-        val lowerText = text.lowercase()
-        while (pos < text.length) {
-            var matched = false
-            for (kw in markedWords.sortedByDescending { it.length }) {
-                val kwLower = kw.lowercase()
-                if (lowerText.startsWith(kwLower, pos)) {
-                    val before = if (pos > 0) text[pos - 1] else ' '
-                    val after = if (pos + kw.length < text.length) text[pos + kw.length] else ' '
-                    if (!before.isLetterOrDigit() && !after.isLetterOrDigit()) {
-                        pushStyle(androidx.compose.ui.text.SpanStyle(
-                            fontWeight = FontWeight.Bold, color = Color(0xFFE65100), background = Color(0xFFFFF9C4)
-                        ))
-                        append(text.substring(pos, pos + kw.length))
-                        pop()
-                        pos += kw.length
-                        matched = true
-                        break
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes: Int, onFinish: () -> Unit) {
+    var currentIndex by remember { mutableStateOf(0) }
+    var answers by remember { mutableStateOf(mutableMapOf<String, String>()) }
+    var selectedOptions by remember { mutableStateOf(mutableMapOf<String, Set<Int>>()) }
+    var submitted by remember { mutableStateOf(setOf<String>()) }
+    var correctSet by remember { mutableStateOf(setOf<String>()) }
+    var handwritingImagesMap by remember { mutableStateOf(mutableMapOf<String, List<String>>()) }
+    var showResult by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // 倒计时
+    var remainingSeconds by remember { mutableStateOf(totalMinutes * 60L) }
+    var warned10 by remember { mutableStateOf(false) }
+    var warned5 by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (remainingSeconds > 0 && !showResult) {
+            kotlinx.coroutines.delay(1000)
+            remainingSeconds--
+            if (remainingSeconds == 600L && !warned10) {
+                warned10 = true
+                android.widget.Toast.makeText(context, "⏰ 还剩10分钟！", android.widget.Toast.LENGTH_LONG).show()
+            }
+            if (remainingSeconds == 300L && !warned5) {
+                warned5 = true
+                android.widget.Toast.makeText(context, "⏰ 还剩5分钟！请抓紧时间！", android.widget.Toast.LENGTH_LONG).show()
+            }
+            if (remainingSeconds <= 0L) { showResult = true }
+        }
+    }
+
+    val question = questions.getOrNull(currentIndex)
+    val mm = remainingSeconds / 60
+    val ss = remainingSeconds % 60
+    val timeColor = when { remainingSeconds <= 300 -> Color(0xFFD32F2F); remainingSeconds <= 600 -> Color(0xFFFF9800); else -> Color.Gray }
+
+    if (showResult) {
+        // 提交所有未提交的答案
+        LaunchedEffect(Unit) {
+            questions.forEach { q ->
+                if (q.id !in submitted) {
+                    val isChoice = q.type == QuestionType.SINGLE_CHOICE || q.type == QuestionType.MULTI_CHOICE
+                    if (isChoice) {
+                        val sel = selectedOptions[q.id] ?: emptySet()
+                        if (sel.isNotEmpty()) {
+                            val userAns = sel.sorted().map { ('A' + it).toString() }.joinToString("")
+                            val correctLetters = q.answer.trim().uppercase().replace(Regex("[,，\\s]+"), "").toCharArray().map { it.toString() }.toSet()
+                            val isCorrect = sel.sorted().map { ('A' + it).toString() }.toSet() == correctLetters
+                            vm.submitAnswer(q.id, userAns, isCorrect)
+                            if (isCorrect) correctSet = correctSet + q.id
+                            submitted = submitted + q.id
+                        }
+                    } else {
+                        val userAns = answers[q.id] ?: ""
+                        if (userAns.isNotBlank()) {
+                            vm.submitAnswer(q.id, userAns, false)
+                            submitted = submitted + q.id
+                        }
                     }
                 }
             }
-            if (!matched) { append(text[pos]); pos++ }
         }
+        // 结果页
+        ExamResultPage(questions = questions, correctSet = correctSet, answeredIds = submitted,
+            totalMinutes = totalMinutes,
+            usedSeconds = (totalMinutes * 60L) - remainingSeconds, onFinish = onFinish)
+        return
     }
-}
 
-// ==================== 简易 Markdown 渲染 ====================
-@Composable
-fun SimpleMarkdownText(text: String) {
-    val lines = text.lines()
-    lines.forEach { line ->
-        val trimmed = line.trim()
-        when {
-            trimmed.startsWith("#### ") -> {
-                Spacer(Modifier.height(8.dp))
-                Text(trimmed.removePrefix("#### ").trim(),
-                    fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333),
-                    lineHeight = 20.sp)
-                Spacer(Modifier.height(4.dp))
-            }
-            trimmed.startsWith("### ") -> {
-                Spacer(Modifier.height(12.dp))
-                Text(trimmed.removePrefix("### ").trim(),
-                    fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF6C00),
-                    lineHeight = 22.sp)
-                Spacer(Modifier.height(6.dp))
-            }
-            trimmed.startsWith("## ") -> {
-                Spacer(Modifier.height(14.dp))
-                Text(trimmed.removePrefix("## ").trim(),
-                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100),
-                    lineHeight = 24.sp)
-                Spacer(Modifier.height(6.dp))
-            }
-            trimmed.startsWith("# ") -> {
-                Spacer(Modifier.height(16.dp))
-                Text(trimmed.removePrefix("# ").trim(),
-                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFBF360C),
-                    lineHeight = 26.sp)
-                Spacer(Modifier.height(8.dp))
-            }
-            trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                val bullet = trimmed.removePrefix("- ").removePrefix("* ").trim()
-                Row(modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 2.dp)) {
-                    Text("•  ", fontSize = 14.sp, color = Color(0xFFFF8A00))
-                    Text(text = renderInlineMarkdown(bullet), fontSize = 14.sp, lineHeight = 22.sp)
+    if (question == null) { showResult = true; return }
+    val liveQ = vm.questions.find { it.id == question.id } ?: question
+    val isChoice = question.type == QuestionType.SINGLE_CHOICE || question.type == QuestionType.MULTI_CHOICE
+    val isMulti = question.type == QuestionType.MULTI_CHOICE
+    val isSubmitted = question.id in submitted
+
+    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false)) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${currentIndex + 1}/${questions.size}", fontSize = 16.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("⏱ ${String.format("%02d:%02d", mm, ss)}", fontSize = 14.sp, color = timeColor, fontWeight = FontWeight.Bold)
+                    }},
+                    actions = {
+                        TextButton(onClick = { showResult = true }) { Text("交卷", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold) }
+                    }
+                )
+            },
+            bottomBar = {
+                Surface(shadowElevation = 8.dp, color = Color.White) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (currentIndex > 0) {
+                            OutlinedButton(onClick = { currentIndex-- }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp)); Text("上一题")
+                            }
+                        }
+                        Button(onClick = {
+                            if (currentIndex < questions.size - 1) currentIndex++ else showResult = true
+                        }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                            Text(if (currentIndex < questions.size - 1) "下一题" else "交卷")
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
             }
-            trimmed.isEmpty() -> Spacer(Modifier.height(4.dp))
-            else -> {
-                Text(text = renderInlineMarkdown(trimmed), fontSize = 14.sp, lineHeight = 22.sp,
-                    modifier = Modifier.padding(vertical = 1.dp))
+        ) { padding ->
+            Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                // 题型标签
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(onClick = {}, label = { Text(question.type.label, fontSize = 11.sp) })
+                    Text("${question.type.minutesPerQuestion()}分钟/题", fontSize = 11.sp, color = Color.Gray,
+                        modifier = Modifier.align(Alignment.CenterVertically))
+                }
+                Spacer(Modifier.height(12.dp))
+                // 题目
+                SimpleMarkdownText(question.content)
+                Spacer(Modifier.height(16.dp))
+
+                if (isChoice && question.options.isNotEmpty()) {
+                    // 选择题
+                    val curSel = selectedOptions[question.id] ?: emptySet()
+                    if (isMulti) { Text("（多选题）", fontSize = 12.sp, color = Color.Gray); Spacer(Modifier.height(4.dp)) }
+                    question.options.forEachIndexed { idx, opt ->
+                        val label = ('A' + idx).toString()
+                        val isSel = idx in curSel
+                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                            .border(1.dp, if (isSel) MaterialTheme.colorScheme.primary else Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
+                            .clickable(enabled = !isSubmitted) {
+                                val newSel = if (isMulti) { if (idx in curSel) curSel - idx else curSel + idx }
+                                else { setOf(idx) }
+                                selectedOptions = selectedOptions.toMutableMap().apply { put(question.id, newSel) }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.White),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(12.dp)) {
+                                Text("$label.", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Text(opt, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                } else {
+                    // 主观题
+                    val curAns = answers[question.id] ?: ""
+                    val qImages = handwritingImagesMap[question.id] ?: emptyList()
+
+                    OutlinedTextField(value = curAns, onValueChange = { answers = answers.toMutableMap().apply { put(question.id, it) } },
+                        label = { Text("输入答案（或拍照手写答案）") }, modifier = Modifier.fillMaxWidth().height(150.dp), maxLines = 15,
+                        enabled = !isSubmitted)
+
+                    // 显示已拍摄的手写图片缩略图
+                    if (qImages.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            qImages.forEach { imgPath ->
+                                val bmp = remember(imgPath) { android.graphics.BitmapFactory.decodeFile(imgPath) }
+                                if (bmp != null) {
+                                    Image(bitmap = bmp.asImageBitmap(), contentDescription = "手写答案",
+                                        modifier = Modifier.size(80.dp).padding(2.dp).border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(4.dp)),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    var showPhotoPicker by remember { mutableStateOf(false) }
+                    OutlinedButton(onClick = { showPhotoPicker = true }, enabled = !isSubmitted,
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("📸 拍照手写答案", fontSize = 13.sp)
+                    }
+                    if (showPhotoPicker) {
+                        ExamPhotoCaptureWithSave(
+                            questionId = question.id,
+                            onResult = { ocrText, imagePath ->
+                                // 保存图片路径
+                                handwritingImagesMap = handwritingImagesMap.toMutableMap().apply {
+                                    put(question.id, (get(question.id) ?: emptyList()) + imagePath)
+                                }
+                                // OCR 文字追加到答案
+                                answers = answers.toMutableMap().apply {
+                                    put(question.id, (get(question.id) ?: "") + "\n" + ocrText)
+                                }
+                                showPhotoPicker = false
+                            },
+                            onDismiss = { showPhotoPicker = false }
+                        )
+                    }
+                }
+
+                // 提交当前题
+                if (!isSubmitted) {
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = {
+                        submitted = submitted + question.id
+                        if (isChoice) {
+                            val sel = selectedOptions[question.id] ?: emptySet()
+                            val userAns = sel.sorted().map { ('A' + it).toString() }.joinToString("")
+                            val correctLetters = question.answer.trim().uppercase().replace(Regex("[,，\\s]+"), "").toCharArray().map { it.toString() }.toSet()
+                            val isCorrect = sel.sorted().map { ('A' + it).toString() }.toSet() == correctLetters
+                            vm.submitAnswer(question.id, userAns, isCorrect)
+                            if (isCorrect) correctSet = correctSet + question.id
+                        } else {
+                            val userAns = answers[question.id] ?: ""
+                            val hasImages = (handwritingImagesMap[question.id] ?: emptyList()).isNotEmpty()
+                            if (hasImages) {
+                                // 手写答案评分（含卷面评价）
+                                val imgCount = (handwritingImagesMap[question.id] ?: emptyList()).size
+                                val (score, feedback) = gradeHandwrittenAnswer(userAns, liveQ.answer, imgCount, vm.aiEnabled)
+                                vm.aiGradeScore = score
+                                vm.aiGradeResult = feedback
+                                val isCorrect = score >= 60
+                                vm.submitAnswer(question.id, userAns, isCorrect)
+                                if (isCorrect) correctSet = correctSet + question.id
+                            } else {
+                                vm.gradeSubjectiveAnswer(liveQ, userAns)
+                                if (vm.aiGradeScore >= 60) correctSet = correctSet + question.id
+                            }
+                        }
+                    }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) { Text("提交本题") }
+                }
+
+                // 已提交显示结果
+                if (isSubmitted) {
+                    Spacer(Modifier.height(12.dp))
+                    val isCorrect = question.id in correctSet
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (isCorrect) Color(0xFFE8F5E9) else Color(0xFFFFEBEE))) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (isCorrect) Icons.Default.CheckCircle else Icons.Default.Cancel, contentDescription = null,
+                                tint = if (isCorrect) Color(0xFF4CAF50) else Color(0xFFD32F2F))
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (isCorrect) "正确" else "错误", fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    // 显示答案和解析
+                    if (liveQ.answer.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("📝 参考答案", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFEF6C00))
+                                Spacer(Modifier.height(4.dp))
+                                SimpleMarkdownText(liveQ.answer)
+                            }
+                        }
+                    }
+                    if (liveQ.explanation.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)), modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF7B1FA2))
+                                Spacer(Modifier.height(4.dp))
+                                SimpleMarkdownText(liveQ.explanation)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
             }
         }
     }
 }
 
-/** 处理行内 **粗体** 标记，返回 AnnotatedString */
-internal fun renderInlineMarkdown(text: String): androidx.compose.ui.text.AnnotatedString {
-    return androidx.compose.ui.text.buildAnnotatedString {
-        var remaining = text
-        while (remaining.isNotEmpty()) {
-            val boldStart = remaining.indexOf("**")
-            if (boldStart == -1) {
-                append(remaining)
-                break
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExamResultPage(questions: List<Question>, correctSet: Set<String>, answeredIds: Set<String>, totalMinutes: Int, usedSeconds: Long, onFinish: () -> Unit) {
+    val totalCount = questions.size
+    val answeredCount = answeredIds.size
+    val unansweredCount = totalCount - answeredCount
+    val correctCount = correctSet.size
+    val wrongCount = answeredCount - correctCount
+    val accuracy = if (answeredCount > 0) (correctCount.toFloat() / answeredCount * 100).toInt() else 0
+    val usedMm = usedSeconds / 60
+    val usedSs = usedSeconds % 60
+
+    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false)) {
+        Scaffold(
+            topBar = { TopAppBar(title = { Text("考试结果", fontWeight = FontWeight.Bold) }) }
+        ) { padding ->
+            Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.EmojiEvents, contentDescription = null, modifier = Modifier.size(80.dp),
+                    tint = if (accuracy >= 60) Color(0xFFFF9800) else Color(0xFF9E9E9E))
+                Spacer(Modifier.height(16.dp))
+                Text("考试完成！", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(24.dp))
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))) {
+                    Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$totalCount", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text("总题数", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$correctCount", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                                Text("正确", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$wrongCount", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F))
+                                Text("错误", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$unansweredCount", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9E9E9E))
+                                Text("未作答", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("正确率: $accuracy%（已作答 $answeredCount 题）", fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            color = Color(0xFFFF9800), modifier = Modifier.align(Alignment.CenterHorizontally))
+                        Spacer(Modifier.height(12.dp))
+                        Text("用时: ${usedMm}分${usedSs}秒 / ${totalMinutes}分钟", fontSize = 13.sp, color = Color.Gray)
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = onFinish, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                    Text("完成", fontSize = 16.sp)
+                }
             }
-            append(remaining.substring(0, boldStart))
-            remaining = remaining.substring(boldStart + 2)
-            val boldEnd = remaining.indexOf("**")
-            if (boldEnd == -1) {
-                append("**$remaining")
-                break
-            }
-            pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF333333)))
-            append(remaining.substring(0, boldEnd))
-            pop()
-            remaining = remaining.substring(boldEnd + 2)
         }
     }
 }
 
-private fun loadSavedArticles(prefs: android.content.SharedPreferences): List<Map<String, String>> {
-    val json = prefs.getString("saved_articles", "[]") ?: "[]"
+/** 考试中拍照OCR录入答案 */
+@Composable
+fun ExamPhotoCapture(onText: (String) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var recognizing by remember { mutableStateOf(false) }
+    val photoFile = remember { java.io.File(context.cacheDir, "exam_photo.jpg").apply { if (!exists()) createNewFile() } }
+    val photoUri = remember { androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            recognizing = true
+            val bitmap = android.graphics.BitmapFactory.decodeFile(photoFile.absolutePath) ?: run { onDismiss(); return@rememberLauncherForActivityResult }
+            val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+            val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions.Builder().build())
+            recognizer.process(image)
+                .addOnSuccessListener { visionText -> recognizing = false; onText(visionText.text) }
+                .addOnFailureListener { recognizing = false; android.widget.Toast.makeText(context, "识别失败", android.widget.Toast.LENGTH_SHORT).show(); onDismiss() }
+        } else { onDismiss() }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            recognizing = true
+            val bitmap = android.graphics.BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri)) ?: run { onDismiss(); return@rememberLauncherForActivityResult }
+            val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+            val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions.Builder().build())
+            recognizer.process(image)
+                .addOnSuccessListener { visionText -> recognizing = false; onText(visionText.text) }
+                .addOnFailureListener { recognizing = false; onDismiss() }
+        } else { onDismiss() }
+    }
+
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) cameraLauncher.launch(photoUri) else onDismiss()
+    }
+
+    if (recognizing) {
+        AlertDialog(onDismissRequest = {}, title = { Text("识别中...") },
+            text = { Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp)); Text("正在识别手写内容...")
+            }}, confirmButton = {})
+    } else {
+        AlertDialog(onDismissRequest = onDismiss, title = { Text("拍照录入答案") },
+            text = { Column {
+                TextButton(onClick = { permLauncher.launch(android.Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("拍照")
+                }
+                TextButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("从相册选择")
+                }
+            }}, confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    }
+}
+
+/** 考试中拍照 — 保存图片 + OCR 识别 */
+@Composable
+fun ExamPhotoCaptureWithSave(questionId: String, onResult: (ocrText: String, imagePath: String) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var recognizing by remember { mutableStateOf(false) }
+    val imgDir = remember { java.io.File(context.getExternalFilesDir(null), "exam_images").apply { mkdirs() } }
+    val photoFile = remember { java.io.File(context.cacheDir, "exam_hw_${System.currentTimeMillis()}.jpg").apply { if (!exists()) createNewFile() } }
+    val photoUri = remember { androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile) }
+
+    fun processImage(bitmap: android.graphics.Bitmap) {
+        recognizing = true
+        val savedFile = java.io.File(imgDir, "hw_${questionId}_${System.currentTimeMillis()}.jpg")
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, savedFile.outputStream())
+
+        // 优先用腾讯云手写OCR（更准确），失败则用ML Kit
+        Thread {
+            val tencentResult = tencentHandwritingOcr(savedFile)
+            if (tencentResult != null && tencentResult.isNotBlank()) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    recognizing = false
+                    onResult(tencentResult, savedFile.absolutePath)
+                }
+            } else {
+                // 降级到 ML Kit
+                val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+                val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+                    com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions.Builder().build())
+                recognizer.process(image)
+                    .addOnSuccessListener { visionText ->
+                        recognizing = false
+                        onResult(visionText.text.ifBlank { "（识别结果为空）" }, savedFile.absolutePath)
+                    }
+                    .addOnFailureListener {
+                        recognizing = false
+                        onResult("（OCR识别失败）", savedFile.absolutePath)
+                    }
+            }
+        }.start()
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            val bmp = android.graphics.BitmapFactory.decodeFile(photoFile.absolutePath) ?: run { onDismiss(); return@rememberLauncherForActivityResult }
+            processImage(bmp)
+        } else onDismiss()
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val bmp = android.graphics.BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri)) ?: run { onDismiss(); return@rememberLauncherForActivityResult }
+            processImage(bmp)
+        } else onDismiss()
+    }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) cameraLauncher.launch(photoUri) else onDismiss()
+    }
+
+    if (recognizing) {
+        AlertDialog(onDismissRequest = {}, title = { Text("识别中...") },
+            text = { Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(12.dp)); Text("正在保存图片并识别手写内容...")
+            }}, confirmButton = {})
+    } else {
+        AlertDialog(onDismissRequest = onDismiss, title = { Text("📸 拍照手写答案") },
+            text = { Column {
+                Text("拍摄纸上手写的答案，图片将保存并用OCR识别", fontSize = 12.sp, color = Color.Gray)
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { permLauncher.launch(android.Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("拍照")
+                }
+                TextButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("从相册选择")
+                }
+            }}, confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    }
+}
+
+/** 手写答案评分（AI开启时用AI评分，否则本地关键词） */
+fun gradeHandwrittenAnswer(ocrText: String, correctAnswer: String, imageCount: Int, aiEnabled: Boolean = false): Pair<Int, String> {
+    if (ocrText.isBlank() || ocrText.contains("OCR识别失败") || ocrText.contains("识别结果为空")) {
+        return Pair(0, "❌ 未能识别手写内容，请确保字迹清晰、光线充足")
+    }
+
+    // AI 评分（更准确）
+    if (aiEnabled && correctAnswer.isNotBlank()) {
+        var aiScore = -1
+        var aiFeedback = ""
+        val latch = java.util.concurrent.CountDownLatch(1)
+        AiService.gradeSubjectiveAnswer(
+            question = "",
+            correctAnswer = correctAnswer,
+            userAnswer = ocrText,
+            onResult = { score, feedback ->
+                aiScore = score
+                aiFeedback = "🤖 AI评分: ${score}分\n$feedback"
+                // 追加卷面评价
+                val charCount = ocrText.replace(Regex("\\s+"), "").length
+                val neatness = if (charCount > 50) "字迹清晰" else if (charCount > 20) "基本可读" else "字迹较潦草"
+                aiFeedback += "\n📝 卷面: $neatness"
+                latch.countDown()
+            },
+            onError = { latch.countDown() }
+        )
+        latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+        if (aiScore >= 0) return Pair(aiScore, aiFeedback)
+    }
+
+    // 本地关键词评分（降级方案）
+    val punctuationRegex = Regex("[，。、；：\\u201c\\u201d\\u2018\\u2019（）\\[\\]【】\\s\\n\\r.,;:\"'()]+")
+    val feedback = StringBuilder()
+
+    val charCount = ocrText.replace(Regex("\\s+"), "").length
+    val lineCount = ocrText.lines().filter { it.isNotBlank() }.size
+    val neatnessScore = when {
+        charCount > 50 -> 10; charCount > 30 -> 7; charCount > 10 -> 5; else -> 3
+    }
+    feedback.appendLine("📝 卷面: ${if (neatnessScore >= 8) "字迹清晰" else if (neatnessScore >= 5) "基本可读" else "字迹较潦草"} (${neatnessScore}/10)")
+
+    if (correctAnswer.isBlank()) {
+        feedback.appendLine("⚠️ 无标准答案，仅评价卷面")
+        return Pair(neatnessScore * 10, feedback.toString())
+    }
+
+    val correctKeywords = correctAnswer.replace(punctuationRegex, " ").split(" ").filter { it.length >= 2 }.distinct()
+    val userText = ocrText.replace(punctuationRegex, " ")
+    if (correctKeywords.isEmpty()) return Pair(neatnessScore * 10, feedback.toString())
+
+    val matchedCount = correctKeywords.count { userText.contains(it, ignoreCase = true) }
+    val coverageRate = matchedCount.toFloat() / correctKeywords.size
+    val contentScore = (coverageRate * 80).toInt()
+    val totalScore = (contentScore + neatnessScore * 2).coerceIn(0, 100)
+
+    val matched = correctKeywords.filter { userText.contains(it, ignoreCase = true) }
+    val missed = correctKeywords.filter { !userText.contains(it, ignoreCase = true) }
+    feedback.appendLine("📊 踩分点: ${matchedCount}/${correctKeywords.size}")
+    if (matched.isNotEmpty()) feedback.appendLine("✅ 命中: ${matched.take(8).joinToString("、")}")
+    if (missed.isNotEmpty()) feedback.appendLine("❌ 缺失: ${missed.take(8).joinToString("、")}")
+    feedback.appendLine("🎯 总分: $totalScore (内容${contentScore} + 卷面${neatnessScore * 2})")
+    return Pair(totalScore, feedback.toString())
+}
+
+/** 腾讯云手写OCR（免费1000次/月） */
+private fun tencentHandwritingOcr(imageFile: java.io.File): String? {
+    val secretId = TencentConfig.secretId
+    val secretKey = TencentConfig.secretKey
+    val host = "ocr.tencentcloudapi.com"
+    val service = "ocr"
+    val timestamp = System.currentTimeMillis() / 1000
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    val date = sdf.format(java.util.Date(timestamp * 1000))
+
+    val imageBase64 = android.util.Base64.encodeToString(imageFile.readBytes(), android.util.Base64.NO_WRAP)
+    val payload = """{"ImageBase64":"$imageBase64"}"""
+
+    fun sha256(data: ByteArray): ByteArray = java.security.MessageDigest.getInstance("SHA-256").digest(data)
+    fun sha256Hex(data: ByteArray): String = sha256(data).joinToString("") { "%02x".format(it) }
+    fun hmac256(key: ByteArray, data: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
+    }
+
+    val payloadBytes = payload.toByteArray(Charsets.UTF_8)
+    val hashedPayload = sha256Hex(payloadBytes)
+    val canonicalRequest = "POST\n/\n\ncontent-type:application/json\nhost:$host\n\ncontent-type;host\n$hashedPayload"
+    val credentialScope = "$date/$service/tc3_request"
+    val stringToSign = "TC3-HMAC-SHA256\n$timestamp\n$credentialScope\n${sha256Hex(canonicalRequest.toByteArray(Charsets.UTF_8))}"
+
+    val secretDate = hmac256("TC3$secretKey".toByteArray(Charsets.UTF_8), date.toByteArray(Charsets.UTF_8))
+    val secretService = hmac256(secretDate, service.toByteArray(Charsets.UTF_8))
+    val secretSigning = hmac256(secretService, "tc3_request".toByteArray(Charsets.UTF_8))
+    val signature = hmac256(secretSigning, stringToSign.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    val authorization = "TC3-HMAC-SHA256 Credential=$secretId/$credentialScope, SignedHeaders=content-type;host, Signature=$signature"
+
     return try {
-        com.google.gson.Gson().fromJson(json, object : com.google.gson.reflect.TypeToken<List<Map<String, String>>>() {}.type) ?: emptyList()
-    } catch (_: Exception) { emptyList() }
+        val request = okhttp3.Request.Builder()
+            .url("https://$host")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Host", host)
+            .addHeader("X-TC-Action", "GeneralHandwritingOCR")
+            .addHeader("X-TC-Version", "2018-11-19")
+            .addHeader("X-TC-Timestamp", timestamp.toString())
+            .addHeader("X-TC-Region", "ap-beijing")
+            .addHeader("Authorization", authorization)
+            .post(okhttp3.RequestBody.create("application/json".toMediaType(), payloadBytes))
+            .build()
+        val client = okhttp3.OkHttpClient.Builder().connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string() ?: return null
+        val map = com.google.gson.Gson().fromJson<Map<String, Any>>(body, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
+        @Suppress("UNCHECKED_CAST")
+        val resp = map["Response"] as? Map<String, Any> ?: return null
+        @Suppress("UNCHECKED_CAST")
+        val error = resp["Error"] as? Map<String, Any>
+        if (error != null) { android.util.Log.e("PsyMap-OCR", "腾讯OCR: ${error["Code"]} - ${error["Message"]}"); return null }
+        @Suppress("UNCHECKED_CAST")
+        val textDetections = resp["TextDetections"] as? List<Map<String, Any>> ?: return null
+        textDetections.joinToString("\n") { (it["DetectedText"] as? String) ?: "" }.trim().ifBlank { null }
+    } catch (e: Exception) {
+        android.util.Log.e("PsyMap-OCR", "腾讯OCR异常: ${e.message}")
+        null
+    }
 }
 
-private fun saveArticles(prefs: android.content.SharedPreferences, articles: List<Map<String, String>>) {
-    prefs.edit().putString("saved_articles", com.google.gson.Gson().toJson(articles)).apply()
+
+// ==================== Markdown 渲染工具 ====================
+
+@Composable
+fun SimpleMarkdownText(text: String, modifier: Modifier = Modifier) {
+    // Markdown 渲染：支持 **粗体**、### 标题、- 列表、![图片](url) 图文混排
+    val lines = text.split("\n")
+    val imageRegex = Regex("!\\[([^]]*)]\\(([^)]+)\\)")
+    Column(modifier = modifier) {
+        lines.forEach { line ->
+            val trimmed = line.trim()
+            // 检查是否包含图片
+            val imageMatch = imageRegex.find(trimmed)
+            when {
+                // 纯图片行
+                imageMatch != null && imageMatch.range.first == 0 && imageMatch.range.last == trimmed.length - 1 -> {
+                    val url = imageMatch.groupValues[2]
+                    val alt = imageMatch.groupValues[1]
+                    if (url.startsWith("http")) {
+                        coil.compose.AsyncImage(
+                            model = url,
+                            contentDescription = alt,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                        )
+                    } else if (url.startsWith("/") || url.startsWith("file:")) {
+                        // 本地文件路径
+                        val file = java.io.File(url.removePrefix("file://"))
+                        if (file.exists()) {
+                            val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = alt,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                                )
+                            }
+                        }
+                    }
+                }
+                // 图文混排行（文字中嵌入图片）
+                imageMatch != null -> {
+                    // 先显示图片前的文字
+                    val before = trimmed.substring(0, imageMatch.range.first)
+                    if (before.isNotBlank()) Text(renderInlineMarkdown(before), fontSize = 14.sp, lineHeight = 20.sp)
+                    val url = imageMatch.groupValues[2]
+                    if (url.startsWith("http")) {
+                        coil.compose.AsyncImage(
+                            model = url, contentDescription = null,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                        )
+                    }
+                    val after = trimmed.substring(imageMatch.range.last + 1)
+                    if (after.isNotBlank()) Text(renderInlineMarkdown(after), fontSize = 14.sp, lineHeight = 20.sp)
+                }
+                trimmed.startsWith("### ") -> Text(trimmed.removePrefix("### "), fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.padding(vertical = 2.dp))
+                trimmed.startsWith("## ") -> Text(trimmed.removePrefix("## "), fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(vertical = 3.dp))
+                trimmed.startsWith("# ") -> Text(trimmed.removePrefix("# "), fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(vertical = 4.dp))
+                trimmed.startsWith("- ") || trimmed.startsWith("* ") -> Text("  • ${trimmed.drop(2)}", fontSize = 14.sp, lineHeight = 20.sp)
+                trimmed.isBlank() -> Spacer(Modifier.height(4.dp))
+                else -> Text(text = renderInlineMarkdown(trimmed), fontSize = 14.sp, lineHeight = 20.sp)
+            }
+        }
+    }
+}
+
+fun renderInlineMarkdown(text: String): String {
+    // 简单去除 **粗体** 标记，保留文字
+    return text.replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
+        .replace(Regex("__(.*?)__"), "$1")
+        .replace(Regex("\\*(.*?)\\*"), "$1")
+        .replace(Regex("_(.*?)_"), "$1")
+        .replace(Regex("`(.*?)`"), "$1")
+}
+
+
+
+// ==================== TTS 引擎（腾讯云优先，Edge TTS 备用） ====================
+
+private fun tencentTtsWithFallback(text: String, voice: VoiceOption): ByteArray? {
+    // 分段（每段100字）
+    val maxChunk = 100
+    val chunks = mutableListOf<String>()
+    var offset = 0
+    while (offset < text.length) {
+        val end = (offset + maxChunk).coerceAtMost(text.length)
+        chunks.add(text.substring(offset, end))
+        offset = end
+    }
+
+    val allAudio = java.io.ByteArrayOutputStream()
+    var tencentFailed = false
+
+    for ((idx, chunk) in chunks.withIndex()) {
+        if (!tencentFailed) {
+            val audioBytes = tencentTtsChunk(chunk, voice.tencentId)
+            if (audioBytes != null) {
+                allAudio.write(audioBytes)
+                android.util.Log.d("PsyMap-TTS", "腾讯云 chunk ${idx+1}/${chunks.size}: ${audioBytes.size} bytes")
+                continue
+            }
+            android.util.Log.w("PsyMap-TTS", "腾讯云失败，切换 Edge TTS (${voice.edgeVoice})")
+            tencentFailed = true
+        }
+        val audioBytes = edgeTtsChunk(chunk, voice.edgeVoice)
+        if (audioBytes != null) allAudio.write(audioBytes)
+    }
+    return if (allAudio.size() > 0) allAudio.toByteArray() else null
+}
+
+private fun tencentTtsChunk(text: String, voiceType: Int): ByteArray? {
+    val secretId = TencentConfig.secretId
+    val secretKey = TencentConfig.secretKey
+    val host = "tts.tencentcloudapi.com"
+    val service = "tts"
+    val timestamp = System.currentTimeMillis() / 1000
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    val date = sdf.format(java.util.Date(timestamp * 1000))
+    val sessionId = "s${System.nanoTime()}"
+
+    val cleanText = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
+    val payload = """{"Text":"$cleanText","SessionId":"$sessionId","VoiceType":$voiceType,"PrimaryLanguage":1,"SampleRate":16000,"Codec":"mp3","Speed":0,"Volume":5}"""
+
+    fun sha256(data: ByteArray): ByteArray = java.security.MessageDigest.getInstance("SHA-256").digest(data)
+    fun sha256Hex(data: ByteArray): String = sha256(data).joinToString("") { "%02x".format(it) }
+    fun hmac256(key: ByteArray, data: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
+    }
+
+    val payloadBytes = payload.toByteArray(Charsets.UTF_8)
+    val hashedPayload = sha256Hex(payloadBytes)
+    val canonicalRequest = "POST\n/\n\ncontent-type:application/json\nhost:$host\n\ncontent-type;host\n$hashedPayload"
+    val credentialScope = "$date/$service/tc3_request"
+    val stringToSign = "TC3-HMAC-SHA256\n$timestamp\n$credentialScope\n${sha256Hex(canonicalRequest.toByteArray(Charsets.UTF_8))}"
+
+    val secretDate = hmac256("TC3$secretKey".toByteArray(Charsets.UTF_8), date.toByteArray(Charsets.UTF_8))
+    val secretService = hmac256(secretDate, service.toByteArray(Charsets.UTF_8))
+    val secretSigning = hmac256(secretService, "tc3_request".toByteArray(Charsets.UTF_8))
+    val signature = hmac256(secretSigning, stringToSign.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    val authorization = "TC3-HMAC-SHA256 Credential=$secretId/$credentialScope, SignedHeaders=content-type;host, Signature=$signature"
+
+    return try {
+        val request = okhttp3.Request.Builder()
+            .url("https://$host")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Host", host)
+            .addHeader("X-TC-Action", "TextToVoice")
+            .addHeader("X-TC-Version", "2019-08-23")
+            .addHeader("X-TC-Timestamp", timestamp.toString())
+            .addHeader("Authorization", authorization)
+            .post(okhttp3.RequestBody.create("application/json".toMediaType(), payloadBytes))
+            .build()
+        val client = okhttp3.OkHttpClient.Builder().connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string() ?: return null
+        val map = com.google.gson.Gson().fromJson<Map<String, Any>>(body, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
+        @Suppress("UNCHECKED_CAST")
+        val resp = map["Response"] as? Map<String, Any> ?: return null
+        @Suppress("UNCHECKED_CAST")
+        val error = resp["Error"] as? Map<String, Any>
+        if (error != null) { android.util.Log.e("PsyMap-TTS", "腾讯云: ${error["Code"]} - ${error["Message"]}"); return null }
+        val audio = resp["Audio"] as? String ?: return null
+        android.util.Base64.decode(audio, android.util.Base64.DEFAULT)
+    } catch (e: Exception) { android.util.Log.e("PsyMap-TTS", "腾讯云异常: ${e.message}"); null }
+}
+
+private fun edgeTtsChunk(text: String, voice: String = "zh-CN-XiaoxiaoNeural"): ByteArray? {
+    val ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'>" +
+        "<voice name='$voice'><prosody rate='+0%' volume='+0%'>${text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")}</prosody></voice></speak>"
+    val connectId = java.util.UUID.randomUUID().toString().replace("-", "")
+    val url = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=$connectId"
+
+    val client = okhttp3.OkHttpClient.Builder().connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+    val audioBuffer = java.io.ByteArrayOutputStream()
+    var completed = false; var error = false
+
+    val ws = client.newWebSocket(okhttp3.Request.Builder().url(url)
+        .addHeader("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
+        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36").build(),
+        object : okhttp3.WebSocketListener() {
+            override fun onOpen(webSocket: okhttp3.WebSocket, response: okhttp3.Response) {
+                webSocket.send("Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n" +
+                    """{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}""")
+                webSocket.send("X-RequestId:$connectId\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n$ssml")
+            }
+            override fun onMessage(webSocket: okhttp3.WebSocket, text: String) { if (text.contains("Path:turn.end")) { completed = true; webSocket.close(1000, "done") } }
+            override fun onMessage(webSocket: okhttp3.WebSocket, bytes: okio.ByteString) {
+                val data = bytes.toByteArray()
+                if (data.size > 2) { val hl = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF); if (hl + 2 < data.size) audioBuffer.write(data, hl + 2, data.size - hl - 2) }
+            }
+            override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) { error = true }
+            override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) { completed = true }
+        })
+    var waited = 0; while (!completed && !error && waited < 600) { Thread.sleep(100); waited++ }
+    client.dispatcher.executorService.shutdown()
+    return if (audioBuffer.size() > 0) audioBuffer.toByteArray() else null
 }

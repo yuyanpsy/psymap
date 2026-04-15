@@ -102,7 +102,66 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
 
     Scaffold(
         bottomBar = {
-            BottomNavBar(
+            Column {
+                // 全局迷你播放条（磨耳朵播放时显示）
+                val svc = AudioPlaybackService.instance
+                var miniPlaying by remember { mutableStateOf(false) }
+                var miniFileName by remember { mutableStateOf("") }
+                var miniProgress by remember { mutableStateOf(0f) }
+
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        val s = AudioPlaybackService.instance
+                        miniPlaying = s?.isPlaying == true
+                        miniFileName = s?.currentFileName ?: ""
+                        val dur = s?.duration ?: 0
+                        val pos = s?.currentPosition ?: 0
+                        miniProgress = if (dur > 0) pos.toFloat() / dur else 0f
+                        kotlinx.coroutines.delay(500)
+                    }
+                }
+
+                if (miniPlaying || miniFileName.isNotBlank()) {
+                    Surface(color = Color(0xFF333333), modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            LinearProgressIndicator(
+                                progress = { miniProgress },
+                                modifier = Modifier.fillMaxWidth().height(2.dp),
+                                color = Color(0xFFFF8A00),
+                                trackColor = Color(0xFF555555)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.MusicNote, contentDescription = null,
+                                    tint = Color(0xFFFF8A00), modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(miniFileName.take(20), color = Color.White, fontSize = 12.sp,
+                                    modifier = Modifier.weight(1f), maxLines = 1)
+                                IconButton(onClick = {
+                                    val s = AudioPlaybackService.instance
+                                    if (s != null) {
+                                        if (s.isPlaying) { s.mediaPlayer?.pause(); s.isPlaying = false }
+                                        else { s.mediaPlayer?.start(); s.isPlaying = true }
+                                    }
+                                }, modifier = Modifier.size(32.dp)) {
+                                    Icon(if (miniPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(onClick = {
+                                    val stopIntent = android.content.Intent(context, AudioPlaybackService::class.java).apply { action = "STOP" }
+                                    context.startService(stopIntent)
+                                }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = null,
+                                        tint = Color(0xFF999999), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                BottomNavBar(
                 currentTab = currentTab,
                 onTabSelected = { tab ->
                     if (tab == AppTab.CAMERA) {
@@ -116,6 +175,7 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
                     }
                 }
             )
+            }  // end Column
         }
     ) { padding ->
         Box(

@@ -36,6 +36,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     var apiBaseUrl by mutableStateOf("https://api.siliconflow.cn/v1")
     var modelName by mutableStateOf("deepseek-ai/DeepSeek-OCR")
 
+    // AI功能开关（控制所有付费API调用）
+    var aiEnabled by mutableStateOf(false)
+
     // 题库
     var questionBanks by mutableStateOf(listOf<QuestionBank>())
     var questions by mutableStateOf(listOf<Question>())
@@ -91,10 +94,12 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         apiKey = prefs.getString("apiKey", "sk-ozgipwvoghexlmpzriaesynaypyqjszqdllemcqzxvaokzqr") ?: "sk-ozgipwvoghexlmpzriaesynaypyqjszqdllemcqzxvaokzqr"
         apiBaseUrl = prefs.getString("apiBaseUrl", "https://api.siliconflow.cn/v1") ?: "https://api.siliconflow.cn/v1"
         modelName = prefs.getString("modelName", "deepseek-ai/DeepSeek-OCR") ?: "deepseek-ai/DeepSeek-OCR"
+        aiEnabled = prefs.getBoolean("aiEnabled", false)
         AiService.apiKey = apiKey
         AiService.apiBaseUrl = apiBaseUrl
         AiService.modelName = modelName
         AiService.textModelName = prefs.getString("textModelName", "Qwen/Qwen2.5-72B-Instruct") ?: "Qwen/Qwen2.5-72B-Instruct"
+        TencentConfig.init(prefs)
 
         val banksJson = prefs.getString("questionBanks", "[]") ?: "[]"
         questionBanks = gson.fromJson(banksJson, object : TypeToken<List<QuestionBank>>() {}.type) ?: emptyList()
@@ -139,10 +144,16 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             .putString("apiKey", apiKey)
             .putString("apiBaseUrl", apiBaseUrl)
             .putString("modelName", modelName)
+            .putBoolean("aiEnabled", aiEnabled)
             .apply()
         AiService.apiKey = apiKey
         AiService.apiBaseUrl = apiBaseUrl
         AiService.modelName = modelName
+    }
+
+    fun toggleAiEnabled(enabled: Boolean) {
+        aiEnabled = enabled
+        prefs.edit().putBoolean("aiEnabled", enabled).apply()
     }
 
     private fun saveBanks() {
@@ -152,6 +163,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     private fun saveQuestions() {
         prefs.edit().putString("questions", gson.toJson(questions)).apply()
     }
+
+    fun saveQuestionsPublic() = saveQuestions()
 
     private fun saveCheckIns() {
         prefs.edit().putString("checkIns", gson.toJson(checkInRecords)).apply()
@@ -191,34 +204,22 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addQuestion(bankId: String, content: String, answer: String, type: QuestionType,
                     options: List<String> = emptyList(), chapter: String = "",
-                    tags: List<String> = emptyList(), isMemorize: Boolean = false) {
+                    tags: List<String> = emptyList(), isMemorize: Boolean = false,
+                    explanation: String = "") {
         val q = Question(
             bankId = bankId, content = content, answer = answer, type = type,
-            options = options, chapter = chapter, tags = tags, isMemorize = isMemorize
+            options = options, chapter = chapter, tags = tags, isMemorize = isMemorize,
+            explanation = explanation
         )
         questions = questions + q
         updateBankCount(bankId)
         saveQuestions()
-
-        // 答案为空时，AI自动生成答案
-        if (answer.isBlank() && content.isNotBlank() && type != QuestionType.SINGLE_CHOICE && type != QuestionType.MULTI_CHOICE) {
-            val qId = q.id
-            val prompt = "你是北师大MAP考研辅导专家。请为以下${type.label}提供标准答案，按踩分点逐条列出，专业术语准确。\n题目：$content"
-            AiService.chatCompletion(prompt, content, { result ->
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    if (result.isNotBlank()) {
-                        questions = questions.map { if (it.id == qId) it.copy(answer = result) else it }
-                        saveQuestions()
-                    }
-                }
-            }, { _ -> })
-        }
     }
 
-    fun updateQuestion(questionId: String, content: String, answer: String, options: List<String> = emptyList()) {
+    fun updateQuestion(questionId: String, content: String, answer: String, options: List<String> = emptyList(), explanation: String = "") {
         if (currentUser.role != UserRole.ADMIN) return
         questions = questions.map {
-            if (it.id == questionId) it.copy(content = content, answer = answer, options = options) else it
+            if (it.id == questionId) it.copy(content = content, answer = answer, options = options, explanation = explanation) else it
         }
         saveQuestions()
     }
@@ -285,6 +286,11 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         else getQuestionsForBank(currentBankId).size
     }
 
+    /** 检查题目今天是否已学习过 */
+    fun isStudiedToday(questionId: String): Boolean {
+        return todayCheckIn.bankStudiedIds.values.any { questionId in it }
+    }
+
     fun submitAnswer(questionId: String, userAnswer: String, isCorrect: Boolean) {
         sessionTotalCount++
         if (isCorrect) sessionCorrectCount++
@@ -324,103 +330,140 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         } else false
     }
 
-    // ========== 主观题AI打分 ==========
+    // ========== 主观题本地评分 ==========
     fun gradeSubjectiveAnswer(question: Question, userAnswer: String) {
-        _isLoading.value = true
-        _loadingMessage.value = "AI 正在评分..."
         aiGradeResult = ""
         aiGradeScore = -1
 
-        if (question.answer.isNotBlank()) {
-            // 本地有答案，直接对比评分
-            AiService.gradeSubjectiveAnswer(
-                question = question.content,
-                correctAnswer = question.answer,
-                userAnswer = userAnswer,
-                onResult = { score, feedback ->
-                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                        aiGradeScore = score
-                        aiGradeResult = feedback
-                        _isLoading.value = false
-                        submitAnswer(question.id, userAnswer, score >= 60)
-                    }
-                },
-                onError = { error ->
-                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                        aiGradeResult = "评分失败: $error"; aiGradeScore = 0; _isLoading.value = false
-                    }
-                }
-            )
-        } else {
-            // 本地无答案，AI先生成标准答案再评分
-            _loadingMessage.value = "AI 正在生成标准答案并评分..."
-            val genPrompt = "你是北师大MAP考研辅导专家。请为以下${question.type.label}提供标准答案，按踩分点逐条列出。\n题目：${question.content}"
-            AiService.chatCompletion(genPrompt, question.content, { aiAnswer ->
-                // 保存AI生成的答案
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    questions = questions.map { if (it.id == question.id) it.copy(answer = aiAnswer) else it }
-                    saveQuestions()
-                }
-                // 用AI答案评分
-                AiService.gradeSubjectiveAnswer(
-                    question = question.content,
-                    correctAnswer = aiAnswer,
-                    userAnswer = userAnswer,
-                    onResult = { score, feedback ->
-                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                            aiGradeScore = score
-                            aiGradeResult = feedback
-                            _isLoading.value = false
-                            submitAnswer(question.id, userAnswer, score >= 60)
-                        }
-                    },
-                    onError = { error ->
-                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                            aiGradeResult = "评分失败: $error"; aiGradeScore = 0; _isLoading.value = false
-                        }
-                    }
-                )
-            }, { error ->
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                    aiGradeResult = "生成答案失败: $error"; aiGradeScore = 0; _isLoading.value = false
-                }
-            })
+        if (question.answer.isBlank()) {
+            // 本地无答案，无法评分，仅记录作答
+            aiGradeScore = -1
+            aiGradeResult = "该题暂无标准答案，无法自动评分"
+            submitAnswer(question.id, userAnswer, false)
+            return
         }
+
+        // 本地文本比对评分
+        val correctAnswer = question.answer.trim()
+        val userAns = userAnswer.trim()
+
+        if (userAns.isBlank()) {
+            aiGradeScore = 0
+            aiGradeResult = "未作答"
+            return
+        }
+
+        // 计算关键词覆盖率
+        val punctuationRegex = Regex("[，。、；：\\u201c\\u201d\\u2018\\u2019（）\\[\\]【】\\s\\n\\r.,;:\"'()]+")
+        val correctKeywords = correctAnswer
+            .replace(punctuationRegex, " ")
+            .split(" ")
+            .filter { it.length >= 2 }
+            .distinct()
+        val userText = userAns.replace(punctuationRegex, " ")
+
+        if (correctKeywords.isEmpty()) {
+            // 答案太短，直接做包含判断
+            val isCorrect = userAns.contains(correctAnswer, ignoreCase = true)
+                || correctAnswer.contains(userAns, ignoreCase = true)
+            aiGradeScore = if (isCorrect) 80 else 30
+            aiGradeResult = if (isCorrect) "答案基本匹配" else "答案与标准答案差异较大"
+            submitAnswer(question.id, userAnswer, aiGradeScore >= 60)
+            return
+        }
+
+        val matchedCount = correctKeywords.count { keyword ->
+            userText.contains(keyword, ignoreCase = true)
+        }
+        val coverageRate = matchedCount.toFloat() / correctKeywords.size
+
+        aiGradeScore = (coverageRate * 100).toInt().coerceIn(0, 100)
+        val matchedKeywords = correctKeywords.filter { userText.contains(it, ignoreCase = true) }
+        val missedKeywords = correctKeywords.filter { !userText.contains(it, ignoreCase = true) }
+
+        val feedback = StringBuilder()
+        feedback.appendLine("关键词覆盖率: ${matchedCount}/${correctKeywords.size}")
+        if (matchedKeywords.isNotEmpty()) {
+            feedback.appendLine("✅ 命中: ${matchedKeywords.take(10).joinToString("、")}")
+        }
+        if (missedKeywords.isNotEmpty()) {
+            feedback.appendLine("❌ 缺失: ${missedKeywords.take(10).joinToString("、")}")
+        }
+        aiGradeResult = feedback.toString().trim()
+        submitAnswer(question.id, userAnswer, aiGradeScore >= 60)
     }
 
     // 导入结果提示
     var importResultMessage by mutableStateOf("")
 
-    // ========== 拍照识别题目 ==========
+    // ========== 拍照识别题目（ML Kit 本地OCR，免费） ==========
     fun recognizeAndImport(bitmap: Bitmap, bankId: String, questionType: QuestionType? = null, tagFrequent: Boolean = false, tagMemorize: Boolean = true) {
         _isLoading.value = true
-        _loadingMessage.value = "AI 正在识别题目..."
+        _loadingMessage.value = "正在识别文字..."
         importResultMessage = ""
 
-        AiService.recognizeQuestions(bitmap,
-            onResult = { triples ->
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                    var count = 0
-                    triples.forEach { (q, a, opts) ->
-                        if (q.isNotBlank()) {
-                            val type = questionType ?: if (opts.isNotEmpty()) QuestionType.SINGLE_CHOICE else QuestionType.SHORT_ANSWER
-                            addQuestion(bankId, q, a, type, options = opts, isMemorize = tagMemorize)
-                            val lastQ = questions.lastOrNull()
-                            if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
-                            count++
-                        }
-                    }
-                    _isLoading.value = false
-                    importResultMessage = "成功导入 $count 道题目"
-                }
-            },
-            onError = { error ->
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                    _isLoading.value = false
-                    importResultMessage = "识别失败: $error"
-                }
-            }
+        val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+        // 使用中文+拉丁文识别器
+        val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
+            com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions.Builder().build()
         )
+        recognizer.process(image)
+            .addOnSuccessListener { visionText ->
+                val ocrText = visionText.text
+                if (ocrText.isBlank()) {
+                    _isLoading.value = false
+                    importResultMessage = "未识别到文字"
+                    return@addOnSuccessListener
+                }
+                // 本地解析OCR文字为题目
+                val defaultType = questionType ?: QuestionType.SHORT_ANSWER
+                val lines = ocrText.lines().map { it.trim() }.filter { it.isNotBlank() }
+                var count = 0
+                var currentQuestion = ""
+                var currentAnswer = ""
+                var currentExplanation = ""
+                var currentOptions = mutableListOf<String>()
+                var section = "none"
+
+                fun saveQ() {
+                    if (currentQuestion.isNotBlank()) {
+                        val type = if (currentOptions.isNotEmpty()) QuestionType.SINGLE_CHOICE else defaultType
+                        addQuestion(bankId, currentQuestion.trim(), currentAnswer.trim(), type,
+                            options = currentOptions.toList(), isMemorize = tagMemorize,
+                            explanation = currentExplanation.trim())
+                        val lastQ = questions.lastOrNull()
+                        if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
+                        count++
+                    }
+                    currentQuestion = ""; currentAnswer = ""; currentExplanation = ""
+                    currentOptions = mutableListOf(); section = "none"
+                }
+
+                for (line in lines) {
+                    val isNewQ = line.matches(Regex("^(\\d+[.、）\\)]|（\\d+）|第\\d+题).*"))
+                    val isOpt = line.matches(Regex("^[A-Ia-i][.、）\\):].*"))
+                    val isAns = line.matches(Regex("^(答案|答)[：:].*")) || line == "答案"
+                    val isExp = line.matches(Regex("^(解析|详解|分析|解答)[：:].*")) || line == "解析"
+                    when {
+                        isNewQ -> { saveQ(); currentQuestion = line.replace(Regex("^(\\d+[.、）\\)]|（\\d+）|第\\d+题[.、：:]?)\\s*"), ""); section = "question" }
+                        isOpt && section != "answer" && section != "explanation" -> { currentOptions.add(line); section = "options" }
+                        isExp -> { section = "explanation"; currentExplanation = line.replace(Regex("^(解析|详解|分析|解答)[：:]?\\s*"), "") }
+                        isAns -> { section = "answer"; currentAnswer = line.replace(Regex("^(答案|答)[：:]?\\s*"), "") }
+                        section == "explanation" -> currentExplanation += "\n$line"
+                        section == "answer" -> currentAnswer += "\n$line"
+                        currentQuestion.isNotBlank() && (section == "question" || section == "none") -> currentQuestion += "\n$line"
+                        else -> { saveQ(); currentQuestion = line; section = "question" }
+                    }
+                }
+                saveQ()
+
+                _isLoading.value = false
+                importResultMessage = if (count > 0) "成功导入 $count 道题目" else "识别到文字但未解析出题目，请检查格式"
+            }
+            .addOnFailureListener { e ->
+                _isLoading.value = false
+                importResultMessage = "识别失败: ${e.message}"
+            }
     }
 
     // ========== 错题本 & 收藏本 ==========
@@ -445,6 +488,13 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleMemorize(questionId: String) {
         questions = questions.map {
             if (it.id == questionId) it.copy(isMemorize = !it.isMemorize) else it
+        }
+        saveQuestions()
+    }
+
+    fun markTtsGenerated(questionIds: List<String>) {
+        questions = questions.map {
+            if (it.id in questionIds) it.copy(ttsGenerated = true) else it
         }
         saveQuestions()
     }
@@ -794,53 +844,92 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("adminList", gson.toJson(list)).apply()
     }
 
-    // ========== 文件导入题目（AI解析文档内容） ==========
+    // ========== 文件导入题目（本地解析，不调用AI） ==========
     fun importFromFileContent(text: String, bankId: String, questionType: QuestionType? = null, tagFrequent: Boolean = false, tagMemorize: Boolean = true) {
         _isLoading.value = true
-        _loadingMessage.value = "AI 正在解析文档..."
+        _loadingMessage.value = "正在解析文档..."
         importResultMessage = ""
 
-        val typeHint = if (questionType != null) "所有题目的题型为「${questionType.label}」。" else ""
-        val prompt = """你是题目解析专家。请从以下文档内容中提取所有题目和答案。${typeHint}
-只返回纯JSON数组，不要用markdown代码块包裹。
-规则：选择题把选项放在options数组中，非选择题options为空数组。
-格式：[{"question":"题目","answer":"答案","options":["A.xx","B.xx"]}]
-如果没有明确答案，answer填空字符串。"""
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            try {
+                val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
+                val defaultType = questionType ?: QuestionType.SHORT_ANSWER
+                var count = 0
+                var currentQuestion = ""
+                var currentAnswer = ""
+                var currentExplanation = ""
+                var currentOptions = mutableListOf<String>()
+                // 解析状态：none=题目区, options=选项区, answer=答案区, explanation=解析区
+                var section = "none"
 
-        AiService.chatCompletion(prompt, text.take(12000), { result ->
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                try {
-                    val cleaned = result.replace(Regex("```(?:json)?\\s*"), "").replace(Regex("```\\s*"), "").trim()
-                    val list = com.google.gson.Gson().fromJson<List<Map<String, Any>>>(cleaned,
-                        object : com.google.gson.reflect.TypeToken<List<Map<String, Any>>>() {}.type)
-                    var count = 0
-                    val defaultType = questionType ?: QuestionType.SHORT_ANSWER
-                    list?.forEach { item ->
-                        val q = item["question"] as? String ?: ""
-                        val a = item["answer"] as? String ?: ""
-                        @Suppress("UNCHECKED_CAST")
-                        val opts = (item["options"] as? List<String>) ?: emptyList()
-                        if (q.isNotBlank()) {
-                            val type = if (opts.isNotEmpty()) QuestionType.SINGLE_CHOICE else defaultType
-                            addQuestion(bankId, q, a, type, options = opts, isMemorize = tagMemorize)
-                            val lastQ = questions.lastOrNull()
-                            if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
-                            count++
+                fun saveCurrentQuestion() {
+                    if (currentQuestion.isNotBlank()) {
+                        val type = if (currentOptions.isNotEmpty()) QuestionType.SINGLE_CHOICE else defaultType
+                        addQuestion(bankId, currentQuestion.trim(), currentAnswer.trim(), type,
+                            options = currentOptions.toList(), isMemorize = tagMemorize,
+                            explanation = currentExplanation.trim())
+                        val lastQ = questions.lastOrNull()
+                        if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
+                        count++
+                    }
+                    currentQuestion = ""; currentAnswer = ""; currentExplanation = ""
+                    currentOptions = mutableListOf(); section = "none"
+                }
+
+                for (line in lines) {
+                    // 匹配题号开头：1. / 1、/ 1） / （1） / 第1题 等
+                    val isNewQuestion = line.matches(Regex("^(\\d+[.、）\\)]|（\\d+）|第\\d+题).*"))
+                    // 匹配选项：A. / A、/ A） 等
+                    val isOption = line.matches(Regex("^[A-Ia-i][.、）\\):].*"))
+                    // 匹配答案标记
+                    val isAnswerLine = line.matches(Regex("^(答案|答)[：:].*")) || line == "答案" || line == "答"
+                    // 匹配解析标记
+                    val isExplanationLine = line.matches(Regex("^(解析|详解|分析|解答|解题思路)[：:].*"))
+                        || line == "解析" || line == "详解"
+
+                    when {
+                        isNewQuestion -> {
+                            saveCurrentQuestion()
+                            currentQuestion = line.replace(Regex("^(\\d+[.、）\\)]|（\\d+）|第\\d+题[.、：:]?)\\s*"), "")
+                            section = "question"
+                        }
+                        isOption && section != "answer" && section != "explanation" -> {
+                            currentOptions.add(line)
+                            section = "options"
+                        }
+                        isExplanationLine -> {
+                            section = "explanation"
+                            currentExplanation = line.replace(Regex("^(解析|详解|分析|解答|解题思路)[：:]?\\s*"), "")
+                        }
+                        isAnswerLine -> {
+                            section = "answer"
+                            currentAnswer = line.replace(Regex("^(答案|答)[：:]?\\s*"), "")
+                        }
+                        section == "explanation" -> {
+                            currentExplanation += "\n$line"
+                        }
+                        section == "answer" -> {
+                            currentAnswer += "\n$line"
+                        }
+                        currentQuestion.isNotBlank() && (section == "question" || section == "none") -> {
+                            currentQuestion += "\n$line"
+                        }
+                        else -> {
+                            saveCurrentQuestion()
+                            currentQuestion = line
+                            section = "question"
                         }
                     }
-                    _isLoading.value = false
-                    importResultMessage = "成功导入 $count 道题目"
-                } catch (e: Exception) {
-                    _isLoading.value = false
-                    importResultMessage = "解析失败: ${e.message}"
                 }
-            }
-        }, { error ->
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                saveCurrentQuestion()
+
                 _isLoading.value = false
-                importResultMessage = "导入失败: $error"
+                importResultMessage = "成功导入 $count 道题目"
+            } catch (e: Exception) {
+                _isLoading.value = false
+                importResultMessage = "解析失败: ${e.message}"
             }
-        })
+        }
     }
 
     // ========== 搜索 ==========

@@ -22,101 +22,114 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun DiscoverPage(vm: PsyMapViewModel) {
     var selectedBankName by remember { mutableStateOf<String?>(null) }
-    var selectedType by remember { mutableStateOf<QuestionType?>(null) }
+    var selectedTypes by remember { mutableStateOf(setOf<QuestionType>()) }
     var showBankDetail by remember { mutableStateOf(false) }
     var selectedBankId by remember { mutableStateOf("") }
     var filterFrequent by remember { mutableStateOf(false) }
     var filterMemorize by remember { mutableStateOf(false) }
 
-    // 根据选中题库动态获取可用题型
     val selectedBank = if (selectedBankName != null) vm.questionBanks.find { it.id == selectedBankName } else null
     val availableTypes: List<QuestionType> = when {
-        selectedBank != null -> selectedBank.subject.availableQuestionTypes().filter { it != QuestionType.MULTI_CHOICE }
-        else -> QuestionType.entries.filter { it != QuestionType.MULTI_CHOICE }
+        selectedBank != null -> selectedBank.subject.availableQuestionTypes()
+        else -> QuestionType.entries.toList()
     }
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        // 左侧分类栏 — 从题库动态生成
-        val bankNames = vm.questionBanks.map { it.name }.distinct()
+    // 计算当前筛选范围内每个题型实际有多少题
+    val filteredBanks = vm.questionBanks.filter { selectedBankName == null || it.id == selectedBankName }
+    val allFilteredQuestions = filteredBanks.flatMap { vm.getQuestionsForBank(it.id) }
+    val typeCounts = availableTypes.associateWith { type -> allFilteredQuestions.count { it.type == type } }
 
+    Row(modifier = Modifier.fillMaxSize()) {
+        // 左侧分类栏
         Column(
-            modifier = Modifier
-                .width(80.dp)
-                .fillMaxHeight()
-                .background(Color(0xFFF5F5F5))
-                .verticalScroll(rememberScrollState())
+            modifier = Modifier.width(80.dp).fillMaxHeight()
+                .background(Color(0xFFF5F5F5)).verticalScroll(rememberScrollState())
         ) {
             SubjectSideItem(label = "全部", selected = selectedBankName == null,
-                onClick = { selectedBankName = null })
-
+                onClick = { selectedBankName = null; selectedTypes = emptySet() })
             vm.questionBanks.forEach { bank ->
-                SubjectSideItem(
-                    label = bank.name,
-                    selected = selectedBankName == bank.id,
-                    onClick = { selectedBankName = bank.id }
-                )
+                SubjectSideItem(label = bank.name, selected = selectedBankName == bank.id,
+                    onClick = { selectedBankName = bank.id; selectedTypes = emptySet() })
             }
-
             Spacer(Modifier.height(8.dp))
             HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
             Spacer(Modifier.height(8.dp))
-
-            // 标签筛选
             Text("标签", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(start = 12.dp))
+            // 常考和多背可同时选中
             SubjectSideItem(label = "🔥常考", selected = filterFrequent,
-                onClick = { filterFrequent = !filterFrequent; if (filterFrequent) filterMemorize = false })
+                onClick = { filterFrequent = !filterFrequent })
             SubjectSideItem(label = "📖多背", selected = filterMemorize,
-                onClick = { filterMemorize = !filterMemorize; if (filterMemorize) filterFrequent = false })
+                onClick = { filterMemorize = !filterMemorize })
         }
 
         // 右侧
-        val filteredBanks = vm.questionBanks.filter { bank ->
-            selectedBankName == null || bank.id == selectedBankName
-        }
-
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxHeight().background(Color.White)
-        ) {
-            // 题型筛选标签 — 根据科目动态显示
+        LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight().background(Color.White)) {
+            // 题型筛选标签
             item {
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    // 全部题型按钮
                     FilterChip(
-                        selected = selectedType == null,
-                        onClick = { selectedType = null },
-                        label = { Text("全部题型", fontSize = 12.sp) }
+                        selected = selectedTypes.isEmpty(),
+                        onClick = { selectedTypes = emptySet() },
+                        label = { Text("全部题型", fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF1976D2),
+                            selectedLabelColor = Color.White
+                        )
                     )
                     availableTypes.forEach { type ->
+                        val hasQuestions = (typeCounts[type] ?: 0) > 0
                         FilterChip(
-                            selected = selectedType == type,
-                            onClick = { selectedType = if (selectedType == type) null else type },
-                            label = { Text(type.label, fontSize = 12.sp) }
+                            selected = type in selectedTypes,
+                            onClick = {
+                                if (hasQuestions) {
+                                    selectedTypes = if (type in selectedTypes) selectedTypes - type else selectedTypes + type
+                                }
+                            },
+                            label = {
+                                Text(
+                                    "${type.label}${if (hasQuestions) "" else ""}",
+                                    fontSize = 12.sp,
+                                    color = when {
+                                        type in selectedTypes -> Color.White
+                                        !hasQuestions -> Color(0xFFBDBDBD)
+                                        else -> Color(0xFF333333)
+                                    }
+                                )
+                            },
+                            enabled = hasQuestions,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF1976D2),
+                                selectedLabelColor = Color.White,
+                                disabledContainerColor = Color(0xFFF0F0F0),
+                                disabledLabelColor = Color(0xFFBDBDBD)
+                            )
                         )
                     }
                 }
             }
 
-            // 当前筛选提示
-            if (selectedBank != null) {
+            // 筛选提示
+            if (selectedTypes.isNotEmpty() || filterFrequent || filterMemorize) {
                 item {
-                    Text(
-                        "${selectedBank.subject.emoji} ${selectedBank.name}  ·  可用题型: ${availableTypes.joinToString("、") { it.label }}",
-                        fontSize = 11.sp, color = Color.Gray,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
+                    val filters = mutableListOf<String>()
+                    if (selectedTypes.isNotEmpty()) filters.add(selectedTypes.joinToString("+") { it.label })
+                    if (filterFrequent) filters.add("常考")
+                    if (filterMemorize) filters.add("多背")
+                    Text("筛选: ${filters.joinToString(" · ")}", fontSize = 11.sp, color = Color(0xFF1976D2),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
                 }
             }
 
             items(filteredBanks, key = { it.id }) { bank ->
                 val allBankQuestions = vm.getQuestionsForBank(bank.id)
                 val questions = allBankQuestions.filter { q ->
-                    (selectedType == null || q.type == selectedType) &&
+                    (selectedTypes.isEmpty() || q.type in selectedTypes) &&
                     (!filterFrequent || q.isFrequent) &&
                     (!filterMemorize || q.isMemorize)
                 }
@@ -124,10 +137,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
 
                 Column(
                     modifier = Modifier.fillMaxWidth()
-                        .clickable {
-                            selectedBankId = bank.id
-                            showBankDetail = true
-                        }
+                        .clickable { selectedBankId = bank.id; showBankDetail = true }
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(),
@@ -138,15 +148,15 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                             Spacer(Modifier.width(8.dp))
                             Text(bank.name, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null,
-                            tint = Color.Gray, modifier = Modifier.size(20.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${questions.size}题", fontSize = 13.sp, color = Color(0xFFFF8A00), fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                        }
                     }
                     Spacer(Modifier.height(4.dp))
-                    // 显示该题库的可用题型
-                    Text(
-                        "${totalCount} 题  ·  错题 ${allBankQuestions.count { it.isInWrongBook }}  ·  ${bank.subject.availableQuestionTypes().joinToString("/") { it.label }}",
-                        fontSize = 11.sp, color = Color.Gray
-                    )
+                    Text("共${totalCount}题  ·  错题${questions.count { it.isInWrongBook }}",
+                        fontSize = 11.sp, color = Color.Gray)
                     HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = Color(0xFFF0F0F0))
                 }
             }
@@ -161,11 +171,15 @@ fun DiscoverPage(vm: PsyMapViewModel) {
         }
     }
 
+    // 点击题库时传递筛选条件
     if (showBankDetail && selectedBankId.isNotBlank()) {
         QuestionBankDetailSheet(
             vm = vm,
             bankId = selectedBankId,
-            onDismiss = { showBankDetail = false }
+            onDismiss = { showBankDetail = false },
+            filterTypes = selectedTypes,
+            filterFrequent = filterFrequent,
+            filterMemorize = filterMemorize
         )
     }
 }

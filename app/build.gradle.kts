@@ -12,8 +12,8 @@ android {
         applicationId = "com.psymap.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.0.7"
+        versionCode = 8
+        versionName = "0.0.8"
     }
 
     buildTypes {
@@ -62,6 +62,10 @@ dependencies {
 
     // 网络图片加载
     implementation("io.coil-kt:coil-compose:2.5.0")
+
+    // Google ML Kit OCR（本地免费，不消耗API token）
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

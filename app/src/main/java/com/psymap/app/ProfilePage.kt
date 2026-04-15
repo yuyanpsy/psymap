@@ -313,7 +313,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.0.7", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v0.0.8", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -339,7 +339,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 val map = com.google.gson.Gson().fromJson<Map<String, Any>>(json, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
                                 val latestVersion = (map["versionName"] as? String) ?: (map["version"] as? String) ?: ""
                                 val downloadUrl = (map["downloadUrl"] as? String) ?: (map["url"] as? String) ?: ""
-                                val currentVersion = "0.0.7"
+                                val currentVersion = "0.0.8"
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     checking = false
                                     if (latestVersion.isNotBlank() && latestVersion != currentVersion) {
@@ -405,32 +405,23 @@ fun ScoreSettingDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             Column {
                 Text("设定各科目标分数，总分自动计算", fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = politics,
-                    onValueChange = { politics = it.filter { c -> c.isDigit() } },
-                    label = { Text("政治（满分100）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    suffix = { Text("分") }
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("政治", fontSize = 14.sp, modifier = Modifier.width(100.dp))
+                    NumberStepper(value = politics, onValueChange = { politics = it }, min = 0, max = 100)
+                    Spacer(Modifier.width(4.dp)); Text("分", fontSize = 13.sp, color = Color.Gray)
+                }
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = english,
-                    onValueChange = { english = it.filter { c -> c.isDigit() } },
-                    label = { Text("英语（满分100）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    suffix = { Text("分") }
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("英语", fontSize = 14.sp, modifier = Modifier.width(100.dp))
+                    NumberStepper(value = english, onValueChange = { english = it }, min = 0, max = 100)
+                    Spacer(Modifier.width(4.dp)); Text("分", fontSize = 13.sp, color = Color.Gray)
+                }
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = psy,
-                    onValueChange = { psy = it.filter { c -> c.isDigit() } },
-                    label = { Text("心理学专业综合（满分300）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    suffix = { Text("分") }
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("专业综合", fontSize = 14.sp, modifier = Modifier.width(100.dp))
+                    NumberStepper(value = psy, onValueChange = { psy = it }, min = 0, max = 300)
+                    Spacer(Modifier.width(4.dp)); Text("分", fontSize = 13.sp, color = Color.Gray)
+                }
                 Spacer(Modifier.height(12.dp))
                 Text("总分: $total 分", fontWeight = FontWeight.Bold, fontSize = 16.sp,
                     color = Color(0xFF4CAF50))

@@ -12,6 +12,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,26 +25,37 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
+    val scope = rememberCoroutineScope()
     val question = vm.getCurrentQuestion()
 
     if (question == null) {
-        // 学习完成
         SessionCompleteView(vm, onFinish)
         return
     }
 
-    var showAnswer by remember(question.id) { mutableStateOf(false) }
-    var selectedOption by remember(question.id) { mutableStateOf(-1) }
-    var selectedOptions by remember(question.id) { mutableStateOf(setOf<Int>()) }  // 多选题用
-    var userTextAnswer by remember(question.id) { mutableStateOf("") }
-    var answered by remember(question.id) { mutableStateOf(false) }
-    var isCorrect by remember(question.id) { mutableStateOf(false) }
+    // 持久化每道题的作答状态（切换题目不丢失）
+    var answeredMap by remember { mutableStateOf(mutableMapOf<String, Boolean>()) }  // questionId -> isCorrect
+    var showAnswerMap by remember { mutableStateOf(mutableMapOf<String, Boolean>()) }
+    var selectedOptionMap by remember { mutableStateOf(mutableMapOf<String, Int>()) }
+    var selectedOptionsMap by remember { mutableStateOf(mutableMapOf<String, Set<Int>>()) }
+    var userTextMap by remember { mutableStateOf(mutableMapOf<String, String>()) }
+
+    val qId = question.id
+    val alreadyStudiedToday = vm.isStudiedToday(qId) && !answeredMap.containsKey(qId)
+    val isAnswered = answeredMap.containsKey(qId) || alreadyStudiedToday
+    val isCorrect = answeredMap[qId] ?: false
+    val showAnswer = showAnswerMap[qId] ?: alreadyStudiedToday
+    val selectedOption = selectedOptionMap[qId] ?: -1
+    val selectedOptions = selectedOptionsMap[qId] ?: emptySet()
+    val userTextAnswer = userTextMap[qId] ?: ""
     val isMultiChoice = question.type == QuestionType.MULTI_CHOICE
 
-    // 切题时重置AI评分状态
+    // 切题时重置AI评分状态（但不重置作答状态）
     LaunchedEffect(question.id) {
-        vm.aiGradeScore = -1
-        vm.aiGradeResult = ""
+        if (!answeredMap.containsKey(question.id)) {
+            vm.aiGradeScore = -1
+            vm.aiGradeResult = ""
+        }
     }
 
     Scaffold(
@@ -133,13 +147,20 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
             Spacer(Modifier.height(16.dp))
 
             // 题目内容
+            if (alreadyStudiedToday) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    Text("📌 今日已学习过此题", fontSize = 12.sp, color = Color(0xFFE65100),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+            }
             SimpleMarkdownText(question.content)
 
             Spacer(Modifier.height(20.dp))
 
             // 选择题选项
             if ((question.type == QuestionType.SINGLE_CHOICE || question.type == QuestionType.MULTI_CHOICE) && question.options.isNotEmpty()) {
-                if (isMultiChoice && !answered) {
+                if (isMultiChoice && !isAnswered) {
                     Text("（多选题，可选择多个选项）", fontSize = 12.sp, color = Color.Gray)
                     Spacer(Modifier.height(4.dp))
                 }
@@ -152,13 +173,13 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                         .toCharArray().map { it.toString() }.toSet()
                     val isCorrectOption = optionLabel in correctLetters
                     val bgColor = when {
-                        !answered -> if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.White
+                        !isAnswered -> if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.White
                         isCorrectOption -> Color(0xFFE8F5E9)
                         isSelected -> Color(0xFFFFEBEE)
                         else -> Color.White
                     }
                     val borderColor = when {
-                        !answered -> if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFE0E0E0)
+                        !isAnswered -> if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFFE0E0E0)
                         isCorrectOption -> Color(0xFF4CAF50)
                         isSelected -> Color(0xFFD32F2F)
                         else -> Color(0xFFE0E0E0)
@@ -169,11 +190,12 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-                            .clickable(enabled = !answered) {
+                            .clickable(enabled = !isAnswered) {
                                 if (isMultiChoice) {
-                                    selectedOptions = if (index in selectedOptions) selectedOptions - index else selectedOptions + index
+                                    val cur = selectedOptionsMap[qId] ?: emptySet()
+                                    selectedOptionsMap = selectedOptionsMap.toMutableMap().apply { put(qId, if (index in cur) cur - index else cur + index) }
                                 } else {
-                                    selectedOption = index
+                                    selectedOptionMap = selectedOptionMap.toMutableMap().apply { put(qId, index) }
                                 }
                             },
                         shape = RoundedCornerShape(8.dp),
@@ -195,29 +217,35 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
 
                 val canSubmit = if (isMultiChoice) selectedOptions.isNotEmpty() else selectedOption >= 0
-                if (!answered && canSubmit) {
+                if (!isAnswered && canSubmit) {
                     Button(
                         onClick = {
-                            answered = true
+                            var correct = false
                             if (isMultiChoice) {
-                                // 多选：将选中的字母排序拼接，与答案比较
                                 val selectedLetters = selectedOptions.sorted().map { ('A' + it).toString() }.toSet()
                                 val correctLetters = question.answer.trim().uppercase()
                                     .replace(Regex("[,，\\s]+"), "")
                                     .toCharArray().map { it.toString() }.toSet()
-                                isCorrect = selectedLetters == correctLetters
-                                val userAnswerStr = selectedLetters.sorted().joinToString("")
-                                vm.submitAnswer(question.id, userAnswerStr, isCorrect)
+                                correct = selectedLetters == correctLetters
+                                vm.submitAnswer(question.id, selectedLetters.sorted().joinToString(""), correct)
                             } else {
                                 val selectedLetter = ('A' + selectedOption).toString()
                                 val selectedText = question.options[selectedOption]
-                                isCorrect = question.answer.trim().equals(selectedLetter, ignoreCase = true)
+                                correct = question.answer.trim().equals(selectedLetter, ignoreCase = true)
                                     || question.answer.trim().equals(selectedText.trim(), ignoreCase = true)
                                     || selectedText.trim().startsWith(question.answer.trim(), ignoreCase = true)
                                     || question.answer.trim().startsWith(selectedLetter, ignoreCase = true)
-                                vm.submitAnswer(question.id, selectedLetter, isCorrect)
+                                vm.submitAnswer(question.id, selectedLetter, correct)
                             }
-                            showAnswer = true
+                            answeredMap = answeredMap.toMutableMap().apply { put(qId, correct) }
+                            showAnswerMap = showAnswerMap.toMutableMap().apply { put(qId, true) }
+                            // 答对自动跳下一题（延迟1秒让用户看到结果）
+                            if (correct) {
+                                scope.launch {
+                                    kotlinx.coroutines.delay(1000)
+                                    vm.moveToNext()
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
@@ -232,7 +260,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                 if (!showAnswer) {
                     OutlinedTextField(
                         value = userTextAnswer,
-                        onValueChange = { userTextAnswer = it },
+                        onValueChange = { userTextMap = userTextMap.toMutableMap().apply { put(qId, it) } },
                         label = { Text("输入你的答案") },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -243,15 +271,10 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = {
-                                showAnswer = true
+                                showAnswerMap = showAnswerMap.toMutableMap().apply { put(qId, true) }
                                 if (userTextAnswer.isNotBlank()) {
                                     vm.gradeSubjectiveAnswer(question, userTextAnswer)
-                                } else {
-                                    // 用户未输入答案，仅显示参考答案
-                                    if (question.answer.isBlank()) {
-                                        // 本地也无答案，AI生成
-                                        vm.gradeSubjectiveAnswer(question, "（用户未作答）")
-                                    }
+                                    answeredMap = answeredMap.toMutableMap().apply { put(qId, vm.aiGradeScore >= 60) }
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -261,11 +284,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                         }
                         OutlinedButton(
                             onClick = {
-                                showAnswer = true
-                                // 如果本地无答案，触发AI生成
-                                if (question.answer.isBlank()) {
-                                    vm.gradeSubjectiveAnswer(question, "（查看答案）")
-                                }
+                                showAnswerMap = showAnswerMap.toMutableMap().apply { put(qId, true) }
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp)
@@ -293,11 +312,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                         if (liveQuestion.answer.isNotBlank()) {
                             SimpleMarkdownText(liveQuestion.answer)
                         } else {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text("AI 正在生成参考答案...", fontSize = 13.sp, color = Color.Gray)
-                            }
+                            Text("该题暂无标准答案", fontSize = 13.sp, color = Color.Gray)
                         }
                     }
                 }
@@ -328,7 +343,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                 }
 
                 // 答题结果（选择题）
-                if ((question.type == QuestionType.SINGLE_CHOICE || question.type == QuestionType.MULTI_CHOICE) && answered) {
+                if ((question.type == QuestionType.SINGLE_CHOICE || question.type == QuestionType.MULTI_CHOICE) && isAnswered) {
                     Spacer(Modifier.height(12.dp))
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -352,6 +367,23 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                                 fontWeight = FontWeight.Medium,
                                 color = if (isCorrect) Color(0xFF2E7D32) else Color(0xFFC62828)
                             )
+                        }
+                    }
+                }
+
+                // 解析（所有题型均可显示）
+                if (liveQuestion.explanation.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                color = Color(0xFF7B1FA2))
+                            Spacer(Modifier.height(8.dp))
+                            SimpleMarkdownText(liveQuestion.explanation)
                         }
                     }
                 }

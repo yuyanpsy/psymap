@@ -50,7 +50,7 @@ fun Subject.availableQuestionTypes(): List<QuestionType> = when (this) {
         QuestionType.SINGLE_CHOICE, QuestionType.MULTI_CHOICE, QuestionType.ESSAY
     )
     else -> listOf(
-        QuestionType.SINGLE_CHOICE, QuestionType.CASE_ANALYSIS,
+        QuestionType.SINGLE_CHOICE, QuestionType.MULTI_CHOICE, QuestionType.CASE_ANALYSIS,
         QuestionType.SHORT_ANSWER, QuestionType.ESSAY, QuestionType.COMPREHENSIVE
     )
 }
@@ -75,6 +75,7 @@ data class Question(
     val bankId: String = "",
     val content: String = "",
     val answer: String = "",
+    val explanation: String = "",              // 解析（选择题/单词短语/长难句用）
     val options: List<String> = emptyList(),  // 选择题选项
     val type: QuestionType = QuestionType.SINGLE_CHOICE,
     val chapter: String = "",                  // 章节标签
@@ -86,7 +87,8 @@ data class Question(
     var wrongCount: Int = 0,
     val note: String = "",                     // 个人笔记
     var isFrequent: Boolean = false,           // 常考标签
-    var isMemorize: Boolean = false            // 多背标签
+    var isMemorize: Boolean = false,           // 多背标签
+    var ttsGenerated: Boolean = false          // 已生成TTS音频
 ) {
     val errorRate: Double
         get() = if (correctCount + wrongCount == 0) 0.0
