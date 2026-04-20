@@ -83,44 +83,13 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
             )
         },
-        bottomBar = {
-            Surface(shadowElevation = 8.dp, color = Color.White) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (vm.currentQuestionIndex > 0) {
-                        OutlinedButton(
-                            onClick = { vm.moveToPrev() },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("上一题")
-                        }
-                    }
-                    Button(
-                        onClick = {
-                            if (!vm.moveToNext()) {
-                                onFinish()
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(if (vm.currentQuestionIndex < vm.getStudySessionSize() - 1) "下一题" else "完成")
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-        }
+        bottomBar = {}
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
@@ -390,6 +359,39 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
 
                 Spacer(Modifier.height(16.dp))
             }
+
+            // 上一题/下一题导航按钮
+            Spacer(Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (vm.currentQuestionIndex > 0) {
+                    OutlinedButton(
+                        onClick = { vm.moveToPrev() },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("上一题")
+                    }
+                }
+                Button(
+                    onClick = {
+                        if (!vm.moveToNext()) {
+                            onFinish()
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (vm.currentQuestionIndex < vm.getStudySessionSize() - 1) "下一题" else "完成")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            }
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

@@ -69,6 +69,7 @@ fun HomePage(vm: PsyMapViewModel) {
     var showFileImportDialog by remember { mutableStateOf(false) }
     var showStudyPlan by remember { mutableStateOf(false) }
     var clickedQuestion by remember { mutableStateOf<Question?>(null) }
+    var showMindMap by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // 拍照搜题
@@ -129,7 +130,7 @@ fun HomePage(vm: PsyMapViewModel) {
                 onCalendar = { showCalendar = true },
                 onWrongBook = { showWrongBookDialog = true },
                 onFavorites = { showFavoritesDialog = true },
-                onMyBanks = { searchText = ""; vm.searchQuestions("") },
+                onMindMap = { showMindMap = true },
                 onMakeAudio = { showMakeAudio = true },
                 onListen = { showListenAudio = true },
                 onMoreKnowledge = { showExamSetup = true }
@@ -141,25 +142,29 @@ fun HomePage(vm: PsyMapViewModel) {
             item { Text("搜索结果 (${vm.searchResults.size})", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontWeight = FontWeight.Medium) }
             items(vm.searchResults.take(20)) { question -> SearchResultItem(question, vm) { clickedQuestion = question } }
         } else {
-            // 我的题库
+            // 题库列表标题栏 + 导入文件/新建题库入口
             item {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("我的题库", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    if (vm.isAdmin) {
-                        Row {
-                            TextButton(onClick = {
-                                filePickerLauncher.launch(arrayOf(
-                                    "application/pdf",
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    "text/plain",
-                                    "image/*"
-                                ))
-                            }) { Text("📄 导入文件", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp) }
-                            TextButton(onClick = { showCreateBank = true }) {
-                                Text("+ 创建题库", color = MaterialTheme.colorScheme.primary)
-                            }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("我的题库", fontWeight = FontWeight.Medium, fontSize = 16.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            filePickerLauncher.launch(arrayOf("application/pdf", "application/msword",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "image/*", "text/plain"))
+                        }) {
+                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("导入文件", fontSize = 13.sp)
+                        }
+                        TextButton(onClick = { showCreateBank = true }) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("新建题库", fontSize = 13.sp)
                         }
                     }
                 }
@@ -196,6 +201,14 @@ fun HomePage(vm: PsyMapViewModel) {
     }
     if (showStudyPlan) {
         StudyPlanDialog(vm = vm, onDismiss = { showStudyPlan = false })
+    }
+    if (showMindMap) {
+        Dialog(
+            onDismissRequest = { showMindMap = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            MindMapPage(onBack = { showMindMap = false })
+        }
     }
     if (showExamSetup) {
         ExamSetupDialog(vm = vm, onDismiss = { showExamSetup = false })
@@ -245,7 +258,7 @@ fun CountdownCard(vm: PsyMapViewModel) {
 fun QuickActions(
     onStudyPlan: () -> Unit, onCalendar: () -> Unit,
     onWrongBook: () -> Unit, onFavorites: () -> Unit,
-    onMyBanks: () -> Unit, onMakeAudio: () -> Unit,
+    onMindMap: () -> Unit, onMakeAudio: () -> Unit,
     onListen: () -> Unit, onMoreKnowledge: () -> Unit
 ) {
     val actions = listOf(
@@ -253,7 +266,7 @@ fun QuickActions(
         Triple(Icons.Default.CalendarMonth, "打卡日历", onCalendar),
         Triple(Icons.Default.ErrorOutline, "复习错题", onWrongBook),
         Triple(Icons.Default.Star, "收藏题目", onFavorites),
-        Triple(Icons.Default.LibraryBooks, "我的题库", onMyBanks),
+        Triple(Icons.Default.AccountTree, "思维导图", onMindMap),
         Triple(Icons.Default.RecordVoiceOver, "制作音频", onMakeAudio),
         Triple(Icons.Default.Headphones, "磨耳朵", onListen),
         Triple(Icons.Default.Quiz, "考一考", onMoreKnowledge)
@@ -909,6 +922,85 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
         }
     }
 
+    // 保存按钮需要的状态
+    var importBankId by remember { mutableStateOf("") }
+
+    fun doImport() {
+        val bankId = if (isCreatingNew && newBankName.isNotBlank()) {
+            vm.createBank(newBankName, newBankSubject).id
+        } else selectedBankId
+
+        if (bankId.isBlank()) {
+            Toast.makeText(context, "请选择或新建题库", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val mimeType = context.contentResolver.getType(uri) ?: ""
+            val isPdf = mimeType.contains("pdf", ignoreCase = true)
+            val isImage = mimeType.startsWith("image/", ignoreCase = true)
+
+            if (isImage) {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val bmp = android.graphics.BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+                if (bmp != null) {
+                    vm.recognizeAndImport(bmp, bankId, selectedType, tagFrequent, tagMemorize)
+                } else {
+                    Toast.makeText(context, "图片加载失败", Toast.LENGTH_SHORT).show()
+                }
+                onDismiss()
+            } else if (isPdf) {
+                val fd = context.contentResolver.openFileDescriptor(uri, "r")
+                if (fd == null) {
+                    Toast.makeText(context, "无法打开PDF", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val renderer = android.graphics.pdf.PdfRenderer(fd)
+                val maxPages = minOf(renderer.pageCount, 5)
+                for (i in 0 until maxPages) {
+                    val page = renderer.openPage(i)
+                    val bmp = android.graphics.Bitmap.createBitmap(page.width * 2, page.height * 2, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bmp)
+                    canvas.drawColor(android.graphics.Color.WHITE)
+                    page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+                    vm.recognizeAndImport(bmp, bankId, selectedType, tagFrequent, tagMemorize)
+                }
+                renderer.close()
+                fd.close()
+                onDismiss()
+            } else {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream == null) {
+                    Toast.makeText(context, "无法读取文件", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream))
+                val sb = StringBuilder()
+                val maxChars = 15000
+                val buffer = CharArray(4096)
+                var totalRead = 0
+                var read: Int
+                while (reader.read(buffer).also { read = it } != -1 && totalRead < maxChars) {
+                    val toAppend = minOf(read, maxChars - totalRead)
+                    sb.append(buffer, 0, toAppend)
+                    totalRead += toAppend
+                }
+                reader.close()
+                val text = sb.toString()
+                if (text.isBlank()) {
+                    Toast.makeText(context, "文件内容为空或格式不支持", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                vm.importFromFileContent(text, bankId, selectedType, tagFrequent, tagMemorize)
+                onDismiss()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "文件读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Dialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -923,12 +1015,14 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                         }
                     }
                 )
-            }
+            },
+            bottomBar = {}
         ) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
@@ -1014,89 +1108,15 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(24.dp))
                 Button(
-                    onClick = {
-                        // 新建题库
-                        val bankId = if (isCreatingNew && newBankName.isNotBlank()) {
-                            vm.createBank(newBankName, newBankSubject).id
-                        } else selectedBankId
-
-                        if (bankId.isBlank()) {
-                            Toast.makeText(context, "请选择或新建题库", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        // 读取文件内容
-                        try {
-                            val mimeType = context.contentResolver.getType(uri) ?: ""
-                            val isPdf = mimeType.contains("pdf", ignoreCase = true)
-                            val isImage = mimeType.startsWith("image/", ignoreCase = true)
-
-                            if (isImage) {
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bmp = android.graphics.BitmapFactory.decodeStream(inputStream)
-                                inputStream?.close()
-                                if (bmp != null) {
-                                    vm.recognizeAndImport(bmp, bankId, selectedType, tagFrequent, tagMemorize)
-                                } else {
-                                    Toast.makeText(context, "图片加载失败", Toast.LENGTH_SHORT).show()
-                                }
-                                onDismiss()
-                            } else if (isPdf) {
-                                val fd = context.contentResolver.openFileDescriptor(uri, "r")
-                                if (fd == null) {
-                                    Toast.makeText(context, "无法打开PDF", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                val renderer = android.graphics.pdf.PdfRenderer(fd)
-                                val maxPages = minOf(renderer.pageCount, 5)
-                                for (i in 0 until maxPages) {
-                                    val page = renderer.openPage(i)
-                                    val bmp = android.graphics.Bitmap.createBitmap(page.width * 2, page.height * 2, android.graphics.Bitmap.Config.ARGB_8888)
-                                    val canvas = android.graphics.Canvas(bmp)
-                                    canvas.drawColor(android.graphics.Color.WHITE)
-                                    page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    page.close()
-                                    vm.recognizeAndImport(bmp, bankId, selectedType, tagFrequent, tagMemorize)
-                                }
-                                renderer.close()
-                                fd.close()
-                                onDismiss()
-                            } else {
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                if (inputStream == null) {
-                                    Toast.makeText(context, "无法读取文件", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream))
-                                val sb = StringBuilder()
-                                val maxChars = 15000
-                                val buffer = CharArray(4096)
-                                var totalRead = 0
-                                var read: Int
-                                while (reader.read(buffer).also { read = it } != -1 && totalRead < maxChars) {
-                                    val toAppend = minOf(read, maxChars - totalRead)
-                                    sb.append(buffer, 0, toAppend)
-                                    totalRead += toAppend
-                                }
-                                reader.close()
-                                val text = sb.toString()
-                                if (text.isBlank()) {
-                                    Toast.makeText(context, "文件内容为空或格式不支持", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                vm.importFromFileContent(text, bankId, selectedType, tagFrequent, tagMemorize)
-                                onDismiss()
-                            }
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "文件读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    },
+                    onClick = { doImport() },
                     enabled = !isLoading && (selectedBankId.isNotBlank() || (isCreatingNew && newBankName.isNotBlank())),
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("开始导入") }
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00))
+                ) { Text("开始导入", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
@@ -2279,7 +2299,7 @@ fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     enabled = previewQ.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8A00))
                 ) { Text("开始考试", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(48.dp))
             }
         }
     }
@@ -2376,28 +2396,9 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
                     }
                 )
             },
-            bottomBar = {
-                Surface(shadowElevation = 8.dp, color = Color.White) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (currentIndex > 0) {
-                            OutlinedButton(onClick = { currentIndex-- }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp)); Text("上一题")
-                            }
-                        }
-                        Button(onClick = {
-                            if (currentIndex < questions.size - 1) currentIndex++ else showResult = true
-                        }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                            Text(if (currentIndex < questions.size - 1) "下一题" else "交卷")
-                            Spacer(Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-            }
+            bottomBar = {}
         ) { padding ->
-            Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Column(modifier = Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
                 // 题型标签
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssistChip(onClick = {}, label = { Text(question.type.label, fontSize = 11.sp) })
@@ -2554,6 +2555,24 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
                     }
                 }
                 Spacer(Modifier.height(24.dp))
+
+                // 上一题/下一题导航按钮
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (currentIndex > 0) {
+                        OutlinedButton(onClick = { currentIndex-- }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp)); Text("上一题")
+                        }
+                    }
+                    Button(onClick = {
+                        if (currentIndex < questions.size - 1) currentIndex++ else showResult = true
+                    }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                        Text(if (currentIndex < questions.size - 1) "下一题" else "交卷")
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Spacer(Modifier.height(32.dp))
             }
         }
     }

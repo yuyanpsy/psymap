@@ -677,44 +677,13 @@ fun QuestionDetailDialog(
                     }
                 )
             },
-            bottomBar = {
-                if (questionList.size > 1 && onNavigate != null && !isEditing) {
-                    Surface(shadowElevation = 8.dp, color = Color.White) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedButton(
-                                onClick = { if (currentIndex > 0) onNavigate(questionList[currentIndex - 1]) },
-                                enabled = currentIndex > 0,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("上一题")
-                            }
-                            Text("${currentIndex + 1}/${questionList.size}", fontSize = 13.sp, color = Color.Gray)
-                            Button(
-                                onClick = { if (currentIndex < questionList.size - 1) onNavigate(questionList[currentIndex + 1]) },
-                                enabled = currentIndex < questionList.size - 1,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("下一题")
-                                Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-            }
+            bottomBar = {}
         ) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
@@ -794,6 +763,7 @@ fun QuestionDetailDialog(
                             onDismiss()
                         }) { Text("保存") }
                     }
+                    Spacer(Modifier.height(48.dp))
                 } else {
                     Text("题目", fontSize = 12.sp, color = Color.Gray)
                     Spacer(Modifier.height(4.dp))
@@ -839,6 +809,39 @@ fun QuestionDetailDialog(
                         }
                     }
                 }
+
+                // 上一题/下一题导航按钮
+                if (questionList.size > 1 && onNavigate != null && !isEditing) {
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { if (currentIndex > 0) onNavigate(questionList[currentIndex - 1]) },
+                            enabled = currentIndex > 0,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("上一题")
+                        }
+                        Text("${currentIndex + 1}/${questionList.size}", fontSize = 13.sp, color = Color.Gray)
+                        Button(
+                            onClick = { if (currentIndex < questionList.size - 1) onNavigate(questionList[currentIndex + 1]) },
+                            enabled = currentIndex < questionList.size - 1,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("下一题")
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
@@ -896,6 +899,7 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {

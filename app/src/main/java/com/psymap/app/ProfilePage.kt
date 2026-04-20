@@ -37,6 +37,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
     var showScoreSetting by remember { mutableStateOf(false) }
     var showAccountInfo by remember { mutableStateOf(false) }
     var showVersionInfo by remember { mutableStateOf(false) }
+    var showCloudSync by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // 恢复：用系统文件选择器选备份文件（不受权限限制）
@@ -190,6 +191,11 @@ fun ProfilePage(vm: PsyMapViewModel) {
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column {
+                    ProfileMenuItem(Icons.Default.Sync, "云端同步",
+                        subtitle = if (vm.cloudSyncing) "同步中..." else if (vm.cloudUserId != null) "已连接" else "未连接") {
+                        showCloudSync = true
+                    }
+                    HorizontalDivider(color = Color(0xFFF0F0F0))
                     ProfileMenuItem(Icons.Default.Share, "分享题库") {
                         showShareBank = true
                     }
@@ -313,7 +319,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.0.8", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v0.1.1", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -339,7 +345,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 val map = com.google.gson.Gson().fromJson<Map<String, Any>>(json, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
                                 val latestVersion = (map["versionName"] as? String) ?: (map["version"] as? String) ?: ""
                                 val downloadUrl = (map["downloadUrl"] as? String) ?: (map["url"] as? String) ?: ""
-                                val currentVersion = "0.0.8"
+                                val currentVersion = "0.1.1"
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     checking = false
                                     if (latestVersion.isNotBlank() && latestVersion != currentVersion) {
@@ -375,6 +381,11 @@ fun ProfilePage(vm: PsyMapViewModel) {
 
     if (showShareBank) {
         ShareBankDialog(vm = vm, onDismiss = { showShareBank = false })
+    }
+
+    // 云端同步弹窗
+    if (showCloudSync) {
+        CloudSyncDialog(vm = vm, onDismiss = { showCloudSync = false })
     }
 }
 
@@ -527,6 +538,110 @@ fun ShareBankDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             ) { Text("分享") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
+}
+
+// ==================== 云端同步弹窗 ====================
+@Composable
+fun CloudSyncDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val isConnected = vm.cloudUserId != null
+
+    LaunchedEffect(isConnected) { if (isConnected) vm.fetchSyncCode() }
+    LaunchedEffect(Unit) {
+        if (isConnected) { vm.fetchSyncCode(); vm.updateLocalHash() }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "云端同步",
+                color = if (isConnected) Color(0xFF4CAF50) else Color.Unspecified
+            )
+        },
+        text = {
+            Column {
+                if (isConnected) {
+                    // 同步码
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("你的同步码", fontSize = 13.sp, color = Color.Gray)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                vm.syncCode.ifBlank { "..." },
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFEF6C00),
+                                letterSpacing = 8.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text("在 Web 端输入此码即可同步数据", fontSize = 11.sp, color = Color.Gray)
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+
+                    // 拉取按钮（暂时始终可用，因为无法预知云端是否有变化）
+                    Button(
+                        onClick = {
+                            vm.syncFromCloud()
+                            android.widget.Toast.makeText(context, "正在从云端拉取...", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !vm.cloudSyncing
+                    ) { Text(if (vm.cloudSyncing) "同步中..." else "从云端拉取最新数据") }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    // 推送按钮（本地有变化时才可点击）
+                    Button(
+                        onClick = {
+                            vm.pushToCloud { result ->
+                                android.widget.Toast.makeText(context, result, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (vm.hasLocalChanges) Color(0xFFEF6C00) else Color(0xFFBDBDBD)
+                        ),
+                        enabled = !vm.cloudSyncing && vm.hasLocalChanges
+                    ) { Text("推送本地数据到云端") }
+
+                    if (!vm.hasLocalChanges) {
+                        Text("本地数据已是最新", fontSize = 11.sp, color = Color.Gray,
+                            modifier = Modifier.padding(top = 4.dp))
+                    }
+                } else {
+                    Text("未连接云端", color = Color.Gray)
+                    Spacer(Modifier.height(8.dp))
+                    Text("连接后可获取同步码，在 Web 端输入即可同步数据。", fontSize = 13.sp, color = Color.Gray)
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            val nickname = vm.currentUser.nickname.ifBlank { "考研人" }
+                            vm.cloudLogin(nickname) { success, msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                if (success) {
+                                    vm.fetchSyncCode()
+                                    vm.pushToCloud { result ->
+                                        android.widget.Toast.makeText(context, result, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !vm.cloudSyncing
+                    ) { Text("连接云端") }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
     )
 }
 

@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "0.0.8",
-  "downloadUrl": "https://github.com/yuyanpsy/psymap/releases/download/v0.0.8/app-debug.apk",
-  "changelog": "考一考模块、解析栏、AI开关、OCR/TTS优化、图文混排、后台播放、整体计划导入"
+  "versionCode": 9,
+  "versionName": "0.1.1",
+  "downloadUrl": "https://github.com/yuyanpsy/psymap/releases/download/v0.1.1/app-debug.apk",
+  "changelog": "题目排序优化、OCR识别增强、Markdown格式化、底部按钮修复、思维导图改进、Web端同步"
 }

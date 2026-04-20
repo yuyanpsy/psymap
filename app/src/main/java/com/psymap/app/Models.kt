@@ -88,7 +88,8 @@ data class Question(
     val note: String = "",                     // 个人笔记
     var isFrequent: Boolean = false,           // 常考标签
     var isMemorize: Boolean = false,           // 多背标签
-    var ttsGenerated: Boolean = false          // 已生成TTS音频
+    var ttsGenerated: Boolean = false,         // 已生成TTS音频
+    val createdAt: Long = System.currentTimeMillis()  // 创建时间
 ) {
     val errorRate: Double
         get() = if (correctCount + wrongCount == 0) 0.0

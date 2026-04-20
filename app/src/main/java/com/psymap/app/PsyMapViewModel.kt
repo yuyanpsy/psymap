@@ -3,6 +3,7 @@ package com.psymap.app
 import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,6 +20,63 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("psymap", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+
+    // ========== 云端同步状态 ==========
+    var cloudSyncing by mutableStateOf(false)
+    var cloudSyncMessage by mutableStateOf("")
+    var cloudUserId: String?
+        get() = SupabaseClient.userId
+        set(value) { SupabaseClient.userId = value }
+
+    // 数据指纹：用于检测本地/云端数据是否有变化
+    var localDataHash by mutableStateOf("")
+    var lastPushedHash by mutableStateOf("")
+    var lastPulledHash by mutableStateOf("")
+    val hasLocalChanges: Boolean get() = localDataHash.isNotBlank() && localDataHash != lastPushedHash
+    val hasCloudChanges: Boolean get() = false // 云端变化在 pullAll 后通过对比检测
+
+    private fun computeDataHash(): String {
+        val key = "${questionBanks.size}_${questions.size}_${questions.sumOf { it.reviewCount }}_${checkInRecords.size}_${dailyTargets.hashCode()}_${targetPoliticsScore}_${targetEnglishScore}_${targetPsyScore}"
+        return key.hashCode().toString(16)
+    }
+
+    fun updateLocalHash() {
+        localDataHash = computeDataHash()
+    }
+
+    // 自动同步定时器
+    private var autoSyncJob: kotlinx.coroutines.Job? = null
+    fun startAutoSync() {
+        autoSyncJob?.cancel()
+        autoSyncJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (true) {
+                kotlinx.coroutines.delay(30_000) // 每30秒检查一次
+                if (SupabaseClient.userId != null) {
+                    val currentHash = computeDataHash()
+                    if (currentHash != lastPushedHash) {
+                        try {
+                            SupabaseClient.pushAll(
+                                questionBanks, questions, checkInRecords, dailyTargets,
+                                targetPoliticsScore, targetEnglishScore, targetPsyScore
+                            )
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                lastPushedHash = currentHash
+                                localDataHash = currentHash
+                            }
+                        } catch (_: Exception) { }
+                    }
+                }
+            }
+        }
+    }
+
+    // 后台同步：不阻塞 UI，静默推送
+    private fun syncToCloud(block: suspend () -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { block() } catch (e: Exception) { /* 静默失败 */ }
+        }
+        updateLocalHash()
+    }
 
     // ========== 状态 ==========
     private val _isLoading = MutableStateFlow(false)
@@ -85,6 +143,11 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
     // ========== 数据持久化 ==========
     private fun loadData() {
+        // 恢复云端用户 ID
+        SupabaseClient.userId = prefs.getString("cloud_user_id", null)
+        SupabaseClient.supabaseUrl = prefs.getString("supabase_url", SupabaseClient.supabaseUrl) ?: SupabaseClient.supabaseUrl
+        SupabaseClient.supabaseKey = prefs.getString("supabase_key", SupabaseClient.supabaseKey) ?: SupabaseClient.supabaseKey
+
         // 强制迁移旧模型配置
         val savedModel = prefs.getString("modelName", null)
         if (savedModel == null || savedModel.contains("Qwen2.5-VL") || savedModel.contains("Qwen3-VL")) {
@@ -137,6 +200,200 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
         updateTodayCheckIn()
         refreshCheckInStats()
+
+        // 自动从云端拉取最新数据（后台静默）
+        if (SupabaseClient.userId != null) {
+            syncFromCloud()
+            startAutoSync()
+        }
+        updateLocalHash()
+        lastPushedHash = localDataHash
+    }
+
+    /** 从云端拉取并合并数据 */
+    fun syncFromCloud() {
+        cloudSyncing = true
+        cloudSyncMessage = ""
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val data = SupabaseClient.pullAll()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    // 合并题库：云端有本地没有的 → 加入；都有的 → 保留本地（名字可能改了）
+                    val localBankIds = questionBanks.map { it.id }.toSet()
+                    val cloudBankIds = data.banks.map { it.id }.toSet()
+                    val newBanks = data.banks.filter { it.id !in localBankIds }
+                    if (newBanks.isNotEmpty()) {
+                        questionBanks = questionBanks + newBanks
+                        saveBanks()
+                    }
+
+                    // 合并题目：云端有本地没有的 → 加入；都有的 → 取累计值较大的
+                    val localQMap = questions.associateBy { it.id }.toMutableMap()
+                    var questionsChanged = false
+                    for (cq in data.questions) {
+                        val lq = localQMap[cq.id]
+                        if (lq == null) {
+                            localQMap[cq.id] = cq
+                            questionsChanged = true
+                        } else {
+                            // 合并：取较大的累计值，合并布尔标记（任一端标记则标记）
+                            val merged = lq.copy(
+                                reviewCount = maxOf(lq.reviewCount, cq.reviewCount),
+                                correctCount = maxOf(lq.correctCount, cq.correctCount),
+                                wrongCount = maxOf(lq.wrongCount, cq.wrongCount),
+                                isInWrongBook = lq.isInWrongBook || cq.isInWrongBook,
+                                isInFavorites = lq.isInFavorites || cq.isInFavorites,
+                                isFrequent = lq.isFrequent || cq.isFrequent,
+                                isMemorize = lq.isMemorize || cq.isMemorize,
+                                ttsGenerated = lq.ttsGenerated || cq.ttsGenerated,
+                                content = if (cq.content.length > lq.content.length) cq.content else lq.content,
+                                answer = if (cq.answer.length > lq.answer.length) cq.answer else lq.answer
+                            )
+                            if (merged != lq) { localQMap[cq.id] = merged; questionsChanged = true }
+                        }
+                    }
+                    if (questionsChanged) {
+                        questions = localQMap.values.toList()
+                        saveQuestions()
+                    }
+
+                    // 合并打卡：按日期合并，取 completedCount 较大的
+                    val localCiMap = checkInRecords.associateBy { it.date }.toMutableMap()
+                    var ciChanged = false
+                    for (cc in data.checkIns) {
+                        val lc = localCiMap[cc.date]
+                        if (lc == null) {
+                            localCiMap[cc.date] = cc; ciChanged = true
+                        } else if (cc.completedCount > lc.completedCount) {
+                            localCiMap[cc.date] = cc; ciChanged = true
+                        }
+                    }
+                    if (ciChanged) {
+                        checkInRecords = localCiMap.values.sortedByDescending { it.date }
+                        saveCheckIns()
+                    }
+
+                    // 每日目标：合并（取较大值）
+                    if (data.dailyTargets.isNotEmpty()) {
+                        val merged = dailyTargets.toMutableMap()
+                        for ((k, v) in data.dailyTargets) { merged[k] = maxOf(merged[k] ?: 0, v) }
+                        dailyTargets = merged
+                        prefs.edit().putString("dailyTargets", gson.toJson(dailyTargets)).apply()
+                    }
+
+                    // 目标分数：取较大值
+                    val (p, e, s) = data.targetScores
+                    if (p > targetPoliticsScore || e > targetEnglishScore || s > targetPsyScore) {
+                        saveTargetScores(maxOf(p, targetPoliticsScore), maxOf(e, targetEnglishScore), maxOf(s, targetPsyScore))
+                    }
+
+                    // AI 设置：云端有就用云端的
+                    data.settings?.let { settings ->
+                        val cloudApiKey = settings["api_key"] as? String
+                        val cloudBaseUrl = settings["api_base_url"] as? String
+                        val cloudModel = settings["model_name"] as? String
+                        val cloudTextModel = settings["text_model_name"] as? String
+                        val cloudAiEnabled = settings["ai_enabled"] as? Boolean
+                        if (!cloudApiKey.isNullOrBlank()) apiKey = cloudApiKey
+                        if (!cloudBaseUrl.isNullOrBlank()) apiBaseUrl = cloudBaseUrl
+                        if (!cloudModel.isNullOrBlank()) modelName = cloudModel
+                        if (cloudTextModel != null) AiService.textModelName = cloudTextModel
+                        if (cloudAiEnabled != null) aiEnabled = cloudAiEnabled
+                        saveApiConfig()
+                    }
+
+                    updateTodayCheckIn()
+                    refreshCheckInStats()
+                    cloudSyncing = false
+                    updateLocalHash()
+                    lastPulledHash = localDataHash
+                    lastPushedHash = localDataHash
+
+                    // 合并后推送回云端（确保云端也有本地独有的数据）
+                    syncToCloud {
+                        SupabaseClient.pushAll(
+                            questionBanks, questions, checkInRecords, dailyTargets,
+                            targetPoliticsScore, targetEnglishScore, targetPsyScore
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    cloudSyncing = false
+                    cloudSyncMessage = "同步失败: ${e.message}"
+                }
+            }
+        }
+    }
+
+    /** 全量推送到云端（首次迁移用） */
+    fun pushToCloud(onResult: (String) -> Unit) {
+        if (SupabaseClient.userId == null) { onResult("未登录云端"); return; }
+        cloudSyncing = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                SupabaseClient.pushAll(
+                    questionBanks, questions, checkInRecords, dailyTargets,
+                    targetPoliticsScore, targetEnglishScore, targetPsyScore
+                )
+                SupabaseClient.upsertSettings(apiKey, apiBaseUrl, modelName,
+                    AiService.textModelName, aiEnabled)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    cloudSyncing = false
+                    updateLocalHash()
+                    lastPushedHash = localDataHash
+                    onResult("推送成功！题库${questionBanks.size}个，题目${questions.size}道")
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    cloudSyncing = false
+                    onResult("推送失败: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /** 云端登录/注册 */
+    fun cloudLogin(nickname: String, onResult: (Boolean, String) -> Unit) {
+        val openId = currentUser.wechatOpenId
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val uid = SupabaseClient.loginOrRegister(nickname, openId)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (uid != null) {
+                        prefs.edit().putString("cloud_user_id", uid).apply()
+                        onResult(true, "云端登录成功")
+                    } else {
+                        onResult(false, "登录失败")
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(false, "登录失败: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /** 获取同步码 */
+    var syncCode by mutableStateOf("")
+    fun fetchSyncCode() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val code = SupabaseClient.getSyncCode()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                syncCode = code ?: ""
+            }
+        }
+    }
+
+    /** 重新生成同步码（每次登录时调用） */
+    fun regenerateSyncCode() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val code = SupabaseClient.regenerateSyncCode()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                syncCode = code ?: ""
+            }
+        }
     }
 
     fun saveApiConfig() {
@@ -149,6 +406,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         AiService.apiKey = apiKey
         AiService.apiBaseUrl = apiBaseUrl
         AiService.modelName = modelName
+        syncToCloud { SupabaseClient.upsertSettings(apiKey, apiBaseUrl, modelName, AiService.textModelName, aiEnabled) }
     }
 
     fun toggleAiEnabled(enabled: Boolean) {
@@ -179,6 +437,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         val bank = QuestionBank(name = name, subject = subject, creatorId = currentUser.id)
         questionBanks = questionBanks + bank
         saveBanks()
+        syncToCloud { SupabaseClient.upsertBank(bank) }
         return bank
     }
 
@@ -188,6 +447,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == bankId) it.copy(name = newName) else it
         }
         saveBanks()
+        syncToCloud { questionBanks.find { it.id == bankId }?.let { SupabaseClient.upsertBank(it) } }
     }
 
     fun deleteBank(bankId: String) {
@@ -196,10 +456,11 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         questionBanks = questionBanks.filter { it.id != bankId }
         saveBanks()
         saveQuestions()
+        syncToCloud { SupabaseClient.deleteBank(bankId) }
     }
 
     fun getQuestionsForBank(bankId: String): List<Question> {
-        return questions.filter { it.bankId == bankId }
+        return questions.filter { it.bankId == bankId }.sortedByDescending { it.createdAt }
     }
 
     fun addQuestion(bankId: String, content: String, answer: String, type: QuestionType,
@@ -207,21 +468,29 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     tags: List<String> = emptyList(), isMemorize: Boolean = false,
                     explanation: String = "") {
         val q = Question(
-            bankId = bankId, content = content, answer = answer, type = type,
+            bankId = bankId,
+            content = formatTextMarkdown(content),
+            answer = formatTextMarkdown(answer),
+            type = type,
             options = options, chapter = chapter, tags = tags, isMemorize = isMemorize,
-            explanation = explanation
+            explanation = formatTextMarkdown(explanation)
         )
         questions = questions + q
         updateBankCount(bankId)
         saveQuestions()
+        syncToCloud { SupabaseClient.upsertQuestion(q); questionBanks.find { it.id == bankId }?.let { SupabaseClient.upsertBank(it) } }
     }
 
     fun updateQuestion(questionId: String, content: String, answer: String, options: List<String> = emptyList(), explanation: String = "") {
         if (currentUser.role != UserRole.ADMIN) return
+        val fmtContent = formatTextMarkdown(content)
+        val fmtAnswer = formatTextMarkdown(answer)
+        val fmtExplanation = formatTextMarkdown(explanation)
         questions = questions.map {
-            if (it.id == questionId) it.copy(content = content, answer = answer, options = options, explanation = explanation) else it
+            if (it.id == questionId) it.copy(content = fmtContent, answer = fmtAnswer, options = options, explanation = fmtExplanation) else it
         }
         saveQuestions()
+        syncToCloud { SupabaseClient.updateQuestionFields(questionId, mapOf("content" to fmtContent, "answer" to fmtAnswer, "options" to options, "explanation" to fmtExplanation)) }
     }
 
     fun updateQuestionType(questionId: String, type: QuestionType) {
@@ -229,6 +498,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == questionId) it.copy(type = type) else it
         }
         saveQuestions()
+        syncToCloud { SupabaseClient.updateQuestionFields(questionId, mapOf("type" to type.name.lowercase())) }
     }
 
     fun deleteQuestions(questionIds: Set<String>) {
@@ -237,6 +507,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         questions = questions.filter { it.id !in questionIds }
         affectedBankIds.forEach { updateBankCount(it) }
         saveQuestions()
+        syncToCloud { SupabaseClient.deleteQuestions(questionIds.toList()) }
     }
 
     private fun updateBankCount(bankId: String) {
@@ -300,7 +571,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == questionId) {
                 it.copy(
                     reviewCount = it.reviewCount + 1,
-                    isInWrongBook = !isCorrect,  // 答对移出错题本，答错加入错题本
+                    isInWrongBook = !isCorrect,
                     correctCount = if (isCorrect) it.correctCount + 1 else it.correctCount,
                     wrongCount = if (!isCorrect) it.wrongCount + 1 else it.wrongCount
                 )
@@ -308,7 +579,17 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         }
         saveQuestions()
 
-        // 更新今日题库维度的练习进度
+        // 同步题目状态到云端
+        val updated = questions.find { it.id == questionId }
+        if (updated != null) {
+            syncToCloud {
+                SupabaseClient.updateQuestionFields(questionId, mapOf(
+                    "reviewCount" to updated.reviewCount, "isInWrongBook" to updated.isInWrongBook,
+                    "correctCount" to updated.correctCount, "wrongCount" to updated.wrongCount
+                ))
+            }
+        }
+
         val bankId = question?.bankId ?: currentBankId
         if (bankId.isNotBlank()) {
             recordBankProgress(bankId, 1, if (isCorrect) 1 else 0, questionId, isCorrect)
@@ -396,14 +677,20 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     // 导入结果提示
     var importResultMessage by mutableStateOf("")
 
-    // ========== 拍照识别题目（ML Kit 本地OCR，免费） ==========
+    // ========== 拍照识别题目（ML Kit 本地OCR + AI 结构化） ==========
     fun recognizeAndImport(bitmap: Bitmap, bankId: String, questionType: QuestionType? = null, tagFrequent: Boolean = false, tagMemorize: Boolean = true) {
         _isLoading.value = true
         _loadingMessage.value = "正在识别文字..."
         importResultMessage = ""
 
+        // 始终使用 ML Kit 本地 OCR（快速、免费），然后用 AI 结构化
+        recognizeAndImportLocal(bitmap, bankId, questionType, tagFrequent, tagMemorize)
+    }
+
+    // 本地 ML Kit OCR + AI/本地解析
+    private fun recognizeAndImportLocal(bitmap: Bitmap, bankId: String, questionType: QuestionType? = null, tagFrequent: Boolean = false, tagMemorize: Boolean = true) {
+        _loadingMessage.value = "正在识别文字..."
         val image = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
-        // 使用中文+拉丁文识别器
         val recognizer = com.google.mlkit.vision.text.TextRecognition.getClient(
             com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions.Builder().build()
         )
@@ -415,55 +702,276 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     importResultMessage = "未识别到文字"
                     return@addOnSuccessListener
                 }
-                // 本地解析OCR文字为题目
-                val defaultType = questionType ?: QuestionType.SHORT_ANSWER
-                val lines = ocrText.lines().map { it.trim() }.filter { it.isNotBlank() }
-                var count = 0
-                var currentQuestion = ""
-                var currentAnswer = ""
-                var currentExplanation = ""
-                var currentOptions = mutableListOf<String>()
-                var section = "none"
+                Log.d("PsyMap-OCR", "ML Kit OCR完成, 文字长度: ${ocrText.length}")
 
-                fun saveQ() {
-                    if (currentQuestion.isNotBlank()) {
-                        val type = if (currentOptions.isNotEmpty()) QuestionType.SINGLE_CHOICE else defaultType
-                        addQuestion(bankId, currentQuestion.trim(), currentAnswer.trim(), type,
-                            options = currentOptions.toList(), isMemorize = tagMemorize,
-                            explanation = currentExplanation.trim())
-                        val lastQ = questions.lastOrNull()
-                        if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
-                        count++
-                    }
-                    currentQuestion = ""; currentAnswer = ""; currentExplanation = ""
-                    currentOptions = mutableListOf(); section = "none"
+                // 始终尝试 AI 结构化（文本处理消耗极小，且效果远优于本地解析）
+                // 仅在 API Key 为空或文字超长时才降级
+                if (apiKey.isBlank() || ocrText.length > 6000) {
+                    if (ocrText.length > 6000) Log.d("PsyMap-OCR", "文字过长(${ocrText.length}字)，使用本地解析")
+                    parseAndImportLocally(ocrText, bankId, questionType, tagFrequent, tagMemorize)
+                    return@addOnSuccessListener
                 }
 
-                for (line in lines) {
-                    val isNewQ = line.matches(Regex("^(\\d+[.、）\\)]|（\\d+）|第\\d+题).*"))
-                    val isOpt = line.matches(Regex("^[A-Ia-i][.、）\\):].*"))
-                    val isAns = line.matches(Regex("^(答案|答)[：:].*")) || line == "答案"
-                    val isExp = line.matches(Regex("^(解析|详解|分析|解答)[：:].*")) || line == "解析"
-                    when {
-                        isNewQ -> { saveQ(); currentQuestion = line.replace(Regex("^(\\d+[.、）\\)]|（\\d+）|第\\d+题[.、：:]?)\\s*"), ""); section = "question" }
-                        isOpt && section != "answer" && section != "explanation" -> { currentOptions.add(line); section = "options" }
-                        isExp -> { section = "explanation"; currentExplanation = line.replace(Regex("^(解析|详解|分析|解答)[：:]?\\s*"), "") }
-                        isAns -> { section = "answer"; currentAnswer = line.replace(Regex("^(答案|答)[：:]?\\s*"), "") }
-                        section == "explanation" -> currentExplanation += "\n$line"
-                        section == "answer" -> currentAnswer += "\n$line"
-                        currentQuestion.isNotBlank() && (section == "question" || section == "none") -> currentQuestion += "\n$line"
-                        else -> { saveQ(); currentQuestion = line; section = "question" }
-                    }
-                }
-                saveQ()
+                // AI 结构化
+                _loadingMessage.value = "正在分析题目结构..."
+                val prompt = """将以下OCR文字整理为题目JSON数组。规则：
+- question: 题目内容（不含选项和题号）
+- answer: 答案，必须保留markdown格式：
+  · 用编号列表（1. 2. 3.）分点，每个要点独占一行（用\n换行）
+  · 重要概念/关键词用**加粗**标记
+  · 每个要点的小标题加粗，如"**1. 遗传是人格发展的先天基础**\n遗传基因决定..."
+  · 选择题答案只填字母
+  · 无答案填""
+- options: 选择题选项数组，非选择题填[]
+- type: single_choice/multi_choice/short_answer/essay/case_analysis
+- explanation: 解析（保留格式，无则""）
+- chapter: 章节名（无则""）
+只返回JSON数组，不要代码块包裹。"""
 
-                _isLoading.value = false
-                importResultMessage = if (count > 0) "成功导入 $count 道题目" else "识别到文字但未解析出题目，请检查格式"
+                AiService.chatCompletion(prompt, ocrText, { aiResult ->
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try {
+                            var s = aiResult.trim()
+                            val codeBlockRegex = Regex("```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```")
+                            val match = codeBlockRegex.find(s)
+                            if (match != null) s = match.groupValues[1].trim()
+
+                            val list = com.google.gson.Gson().fromJson<List<Map<String, Any>>>(s,
+                                object : com.google.gson.reflect.TypeToken<List<Map<String, Any>>>() {}.type)
+                            if (list.isNullOrEmpty()) {
+                                parseAndImportLocally(ocrText, bankId, questionType, tagFrequent, tagMemorize)
+                            } else {
+                                importAiResults(list, bankId, questionType, tagFrequent, tagMemorize)
+                            }
+                        } catch (e: Exception) {
+                            Log.w("PsyMap-OCR", "AI解析失败，降级本地: ${e.message}")
+                            parseAndImportLocally(ocrText, bankId, questionType, tagFrequent, tagMemorize)
+                        }
+                    }
+                }, { error ->
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        Log.w("PsyMap-OCR", "AI请求失败，降级本地: $error")
+                        parseAndImportLocally(ocrText, bankId, questionType, tagFrequent, tagMemorize)
+                    }
+                })
             }
             .addOnFailureListener { e ->
                 _isLoading.value = false
                 importResultMessage = "识别失败: ${e.message}"
             }
+    }
+
+    // 导入 AI 结构化结果
+    private fun importAiResults(list: List<Map<String, Any>>, bankId: String, questionType: QuestionType? = null, tagFrequent: Boolean = false, tagMemorize: Boolean = true) {
+        var count = 0
+        for (item in list) {
+            val question = item["question"] as? String ?: ""
+            if (question.isBlank()) continue
+            val answer = item["answer"] as? String ?: ""
+            @Suppress("UNCHECKED_CAST")
+            val options = (item["options"] as? List<String>) ?: emptyList()
+            val explanation = item["explanation"] as? String ?: ""
+            val typeStr = item["type"] as? String ?: ""
+            val type = if (questionType != null) questionType else when (typeStr.lowercase()) {
+                "single_choice" -> QuestionType.SINGLE_CHOICE
+                "multi_choice" -> QuestionType.MULTI_CHOICE
+                "short_answer" -> QuestionType.SHORT_ANSWER
+                "essay" -> QuestionType.ESSAY
+                "case_analysis" -> QuestionType.CASE_ANALYSIS
+                "comprehensive" -> QuestionType.COMPREHENSIVE
+                else -> if (options.isNotEmpty()) QuestionType.SINGLE_CHOICE else QuestionType.SHORT_ANSWER
+            }
+            addQuestion(bankId, question.trim(), answer.trim(), type,
+                options = options, isMemorize = tagMemorize, explanation = explanation.trim())
+            val lastQ = questions.lastOrNull()
+            if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
+            count++
+        }
+        _isLoading.value = false
+        importResultMessage = if (count > 0) "成功导入 $count 道题目" else "识别到文字但未解析出题目"
+    }
+
+    // 纯本地正则解析（最终降级方案）
+    private fun parseAndImportLocally(ocrText: String, bankId: String, questionType: QuestionType? = null, tagFrequent: Boolean = false, tagMemorize: Boolean = true) {
+        val defaultType = questionType ?: QuestionType.SHORT_ANSWER
+        val lines = ocrText.lines().map { it.trim() }.filter { it.isNotBlank() }
+        var count = 0
+        var currentQuestion = ""
+        var currentAnswer = ""
+        var currentExplanation = ""
+        var currentOptions = mutableListOf<String>()
+        var currentChapter = ""
+        var currentSectionType: QuestionType? = null
+        var section = "none" // none, question, options, answer, explanation
+
+        // 题号模式：1. 1、 1) （1） 第1题
+        val questionNumRegex = Regex("^(\\d{1,3})[.、）\\)\\.]\\s*(.+)")
+        val questionNumRegex2 = Regex("^（(\\d{1,3})）\\s*(.+)")
+        val questionNumRegex3 = Regex("^第(\\d{1,3})题[.、：:]?\\s*(.*)")
+        // 选项模式：A. A、 A) A:（支持大小写A-I）
+        val optionRegex = Regex("^([A-Ia-i])[.、）\\):\\s]\\s*(.+)")
+        // 答案模式
+        val answerRegex = Regex("^(答案|答|参考答案|标准答案)[：:．.]?\\s*(.*)", RegexOption.IGNORE_CASE)
+        // 解析模式
+        val explanationRegex = Regex("^(解析|详解|分析|解答|解题思路)[：:．.]?\\s*(.*)", RegexOption.IGNORE_CASE)
+        // 章节标题
+        val chapterRegex = Regex("^第[一二三四五六七八九十百\\d]+[章编节部分].*")
+        // 题型分类标题
+        val sectionTypeRegex = Regex("^[一二三四五六七八九十]+[、.．]\\s*[（(]?\\s*(选择|单选|多选|简答|论述|案例分析|综合|填空|名词解释|判断|问答).*")
+        // 纯标题行（不含题目内容的行，如"选择题"、"简答题"等）
+        val pureTitleRegex = Regex("^(选择题|单选题|多选题|简答题|论述题|案例分析题|综合题|名词解释|判断题|问答题)$")
+
+        fun saveQ() {
+            if (currentQuestion.isNotBlank() && currentQuestion.length >= 4) {
+                val type = if (questionType != null) questionType
+                    else if (currentOptions.isNotEmpty()) {
+                        if (currentAnswer.length > 1 && currentAnswer.replace(Regex("[,，\\s]"), "").length > 1)
+                            QuestionType.MULTI_CHOICE else QuestionType.SINGLE_CHOICE
+                    }
+                    else currentSectionType ?: defaultType
+                addQuestion(bankId, currentQuestion.trim(), currentAnswer.trim(), type,
+                    options = currentOptions.toList(), isMemorize = tagMemorize,
+                    explanation = currentExplanation.trim())
+                val lastQ = questions.lastOrNull()
+                if (lastQ != null && tagFrequent) toggleFrequent(lastQ.id)
+                count++
+            }
+            currentQuestion = ""; currentAnswer = ""; currentExplanation = ""
+            currentOptions = mutableListOf(); section = "none"
+        }
+
+        for (line in lines) {
+            // 1. 检测章节标题（跳过，不作为题目）
+            if (chapterRegex.matches(line)) {
+                saveQ(); currentChapter = line; continue
+            }
+            // 2. 检测题型分类标题
+            if (sectionTypeRegex.matches(line) || pureTitleRegex.matches(line)) {
+                saveQ()
+                currentSectionType = when {
+                    line.contains("单选") || (line.contains("选择") && !line.contains("多选")) -> QuestionType.SINGLE_CHOICE
+                    line.contains("多选") -> QuestionType.MULTI_CHOICE
+                    line.contains("简答") || line.contains("名词解释") || line.contains("问答") -> QuestionType.SHORT_ANSWER
+                    line.contains("论述") -> QuestionType.ESSAY
+                    line.contains("案例") -> QuestionType.CASE_ANALYSIS
+                    line.contains("综合") -> QuestionType.COMPREHENSIVE
+                    line.contains("判断") -> QuestionType.SINGLE_CHOICE
+                    else -> null
+                }
+                continue
+            }
+            // 3. 检测纯大纲/目录行（如"一、人格的定义"这种不是题目的行）
+            // 如果当前没有在答案/解析模式，且行以中文数字+顿号开头但不是题型标题，可能是大纲
+            val isOutlineHeading = line.matches(Regex("^[一二三四五六七八九十]+[、.]\\s*.+")) && !sectionTypeRegex.matches(line)
+
+            // 4. 检测答案行
+            val ansMatch = answerRegex.find(line)
+            if (ansMatch != null) {
+                section = "answer"
+                currentAnswer = ansMatch.groupValues[2]
+                continue
+            }
+            // 5. 检测解析行
+            val expMatch = explanationRegex.find(line)
+            if (expMatch != null) {
+                section = "explanation"
+                currentExplanation = expMatch.groupValues[2]
+                continue
+            }
+            // 6. 检测选项行（仅在题目或选项模式下）
+            val optMatch = optionRegex.find(line)
+            if (optMatch != null && section != "answer" && section != "explanation") {
+                currentOptions.add(line)
+                section = "options"
+                continue
+            }
+            // 7. 检测新题目（数字题号）
+            val qMatch = questionNumRegex.find(line) ?: questionNumRegex2.find(line) ?: questionNumRegex3.find(line)
+            if (qMatch != null) {
+                saveQ()
+                currentQuestion = qMatch.groupValues.last()
+                section = "question"
+                continue
+            }
+            // 8. 大纲标题行：如果当前没有正在编辑的题目，把大纲标题当作简答题的题目
+            if (isOutlineHeading && currentQuestion.isBlank()) {
+                saveQ()
+                currentQuestion = line.replace(Regex("^[一二三四五六七八九十]+[、.]\\s*"), "")
+                section = "question"
+                continue
+            }
+            // 9. 续行：根据当前 section 追加内容
+            when (section) {
+                "answer" -> currentAnswer += "\n$line"
+                "explanation" -> currentExplanation += "\n$line"
+                "question", "options" -> {
+                    // 如果当前有题目，追加到题目内容（可能是多行题目）
+                    if (currentQuestion.isNotBlank()) currentQuestion += "\n$line"
+                }
+                else -> {
+                    // 没有明确的 section，如果行看起来像是内容（不是太短），当作新题目
+                    if (line.length >= 6) {
+                        saveQ()
+                        currentQuestion = line
+                        section = "question"
+                    }
+                }
+            }
+        }
+        saveQ()
+
+        _isLoading.value = false
+        importResultMessage = if (count > 0) "成功导入 $count 道题目（本地解析）" else "识别到文字但未解析出题目，建议开启AI功能"
+    }
+
+    // 为文本自动添加 markdown 格式（编号加粗、换行、关键词高亮）
+    private fun formatTextMarkdown(text: String): String {
+        if (text.isBlank()) return text
+        // 如果文本已经包含 markdown 格式标记，不重复处理
+        if (text.contains("**") || text.contains("### ")) return text
+
+        val lines = text.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+        if (lines.size <= 1 && !lines.firstOrNull().orEmpty().matches(Regex(".*\\d+[.、）].*"))) return text
+
+        val result = StringBuilder()
+        val numberedPointRegex = Regex("^(\\d+)[.、）\\)．]\\s*(.*)")
+        val parenPointRegex = Regex("^[（(](\\d+)[）)]\\s*(.*)")
+        val chineseNumRegex = Regex("^([一二三四五六七八九十]+)[、.．]\\s*(.*)")
+        var hasStructure = false
+
+        for (line in lines) {
+            // 数字编号要点：1. xxx  2. xxx
+            val numMatch = numberedPointRegex.find(line) ?: parenPointRegex.find(line)
+            if (numMatch != null) {
+                hasStructure = true
+                val num = numMatch.groupValues[1]
+                val content = numMatch.groupValues[2]
+                val colonIdx = content.indexOfFirst { it == '：' || it == ':' }
+                if (colonIdx in 1..30) {
+                    val title = content.substring(0, colonIdx)
+                    val rest = content.substring(colonIdx)
+                    result.append("\n**$num. $title**$rest\n")
+                } else if (content.length <= 25) {
+                    result.append("\n**$num. $content**\n")
+                } else {
+                    result.append("\n$num. $content\n")
+                }
+                continue
+            }
+            // 中文编号要点：一、xxx  二、xxx
+            val cnMatch = chineseNumRegex.find(line)
+            if (cnMatch != null) {
+                hasStructure = true
+                val num = cnMatch.groupValues[1]
+                val content = cnMatch.groupValues[2]
+                result.append("\n### ${num}、$content\n")
+                continue
+            }
+            // 普通行
+            result.append("\n$line\n")
+        }
+
+        return if (hasStructure) result.toString().trim() else text
     }
 
     // ========== 错题本 & 收藏本 ==========
@@ -476,6 +984,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == questionId) it.copy(isInFavorites = !it.isInFavorites) else it
         }
         saveQuestions()
+        syncToCloud { val q = questions.find { it.id == questionId }; if (q != null) SupabaseClient.updateQuestionFields(questionId, mapOf("isInFavorites" to q.isInFavorites)) }
     }
 
     fun toggleFrequent(questionId: String) {
@@ -483,6 +992,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == questionId) it.copy(isFrequent = !it.isFrequent) else it
         }
         saveQuestions()
+        syncToCloud { val q = questions.find { it.id == questionId }; if (q != null) SupabaseClient.updateQuestionFields(questionId, mapOf("isFrequent" to q.isFrequent)) }
     }
 
     fun toggleMemorize(questionId: String) {
@@ -490,6 +1000,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == questionId) it.copy(isMemorize = !it.isMemorize) else it
         }
         saveQuestions()
+        syncToCloud { val q = questions.find { it.id == questionId }; if (q != null) SupabaseClient.updateQuestionFields(questionId, mapOf("isMemorize" to q.isMemorize)) }
     }
 
     fun markTtsGenerated(questionIds: List<String>) {
@@ -497,6 +1008,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id in questionIds) it.copy(ttsGenerated = true) else it
         }
         saveQuestions()
+        syncToCloud { for (id in questionIds) SupabaseClient.updateQuestionFields(id, mapOf("ttsGenerated" to true)) }
     }
 
     fun removeFromWrongBook(questionId: String) {
@@ -504,6 +1016,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == questionId) it.copy(isInWrongBook = false) else it
         }
         saveQuestions()
+        syncToCloud { SupabaseClient.updateQuestionFields(questionId, mapOf("isInWrongBook" to false)) }
     }
 
     // ========== 打卡 ==========
@@ -560,6 +1073,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         todayCheckIn = updated
         saveCheckIns()
 
+        // 同步打卡到云端
+        syncToCloud { SupabaseClient.upsertCheckIn(updated) }
+
         // 检查是否所有有目标的题库都完成了 → 才算当天打卡
         refreshCheckInStats()
     }
@@ -607,6 +1123,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     fun saveDailyTargets(targets: Map<String, Int>) {
         dailyTargets = targets
         prefs.edit().putString("dailyTargets", gson.toJson(targets)).apply()
+        syncToCloud { SupabaseClient.upsertDailyTargets(targets) }
     }
 
     // ========== 数据备份/恢复 ==========
@@ -817,6 +1334,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             .putInt("targetEnglishScore", english)
             .putInt("targetPsyScore", psy)
             .apply()
+        syncToCloud { SupabaseClient.upsertTargetScores(politics, english, psy) }
     }
 
     // ========== 退出登录 ==========
@@ -999,6 +1517,13 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         )
         isLoggedIn = true
         saveUser()
+        // 自动连接云端并刷新同步码
+        cloudLogin(nickname) { success, _ ->
+            if (success) {
+                regenerateSyncCode()
+                syncFromCloud()
+            }
+        }
     }
 
     val isAdmin: Boolean get() = currentUser.role == UserRole.ADMIN

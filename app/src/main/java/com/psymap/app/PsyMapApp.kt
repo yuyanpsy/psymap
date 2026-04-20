@@ -255,13 +255,6 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
         )
     }
 
-    // 全局监听导入结果，显示 Toast
-    LaunchedEffect(vm.importResultMessage) {
-        if (vm.importResultMessage.isNotBlank()) {
-            Toast.makeText(context, vm.importResultMessage, Toast.LENGTH_LONG).show()
-        }
-    }
-
     // 拍照导入弹窗
     if (showImportDialog && capturedBitmap != null) {
         PhotoImportDialog(

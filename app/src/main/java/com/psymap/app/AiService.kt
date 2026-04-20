@@ -187,7 +187,7 @@ object AiService {
     /** 拍照识别题目：用 DeepSeek-OCR 提取文字，再用文本模型结构化 */
     fun recognizeQuestions(
         bitmap: Bitmap,
-        onResult: (List<Triple<String, String, List<String>>>) -> Unit,  // (question, answer, options)
+        onResult: (List<Map<String, Any>>) -> Unit,
         onError: (String) -> Unit
     ) {
         val base64 = bitmapToBase64(bitmap)
@@ -200,7 +200,7 @@ object AiService {
                     mapOf("type" to "image_url", "image_url" to mapOf(
                         "url" to "data:image/jpeg;base64,$base64"
                     )),
-                    mapOf("type" to "text", "text" to "OCR识别图片中的所有文字内容，完整输出，不要遗漏。")
+                    mapOf("type" to "text", "text" to "OCR识别图片中的所有文字内容，完整输出，不要遗漏。请使用中文简体输出，不要使用繁体字。保留原文的层级结构、题号、选项字母等格式。")
                 ))
             ),
             temperature = 0.1,
@@ -211,15 +211,29 @@ object AiService {
                     return@doChat
                 }
                 // Step 2: 用文本模型结构化
-                val prompt = """你是题目解析专家。以下是从试卷图片中OCR识别出的原始文字。
+                val prompt = """你是考研试卷题目解析专家。以下是从试卷/教材图片中OCR识别出的原始文字。
 请将这些文字整理为结构化的题目列表。
-规则：
-1. 每道题的question字段包含完整题目内容（不含选项）
-2. 如果是选择题，把选项放在options数组中（如["A.格式塔","B.人本主义","C.构造主义","D.行为主义"]）
-3. 非选择题options为空数组[]
-4. 如果能判断答案，填入answer字段，否则answer填空字符串
-5. 严格基于OCR文字，不要编造不存在的内容
-只返回纯JSON数组：[{"question":"题目","answer":"答案","options":["A.xx","B.xx"]}]"""
+
+重要规则：
+1. 仔细识别文档结构：章节标题（如"第一章 xxx"）、题型分类（如"一、选择题"、"二、简答题"、"三、论述题"）
+2. 每道题必须包含以下字段：
+   - "question": 完整题目内容（不含选项、不含题号）
+   - "answer": 参考答案，必须保留markdown格式：
+     · 用编号（1. 2. 3.）分点，每个要点用\n换行
+     · 重要概念和关键词用**加粗**
+     · 每个要点的小标题加粗，如"**1. 遗传是人格发展的先天基础**\n遗传基因决定..."
+     · 选择题答案只保留字母（如"A"）
+     · 无答案填空字符串
+   - "options": 选择题选项数组，非选择题填空数组[]
+   - "type": single_choice/multi_choice/short_answer/essay/case_analysis/comprehensive
+   - "explanation": 解析内容（保留格式，没有则填空字符串）
+   - "chapter": 所属章节名称（没有则填空字符串）
+
+3. 题型判断：有A/B/C/D选项→选择题，标注简答→short_answer，标注论述→essay
+4. 严格基于OCR文字，不要编造内容。使用中文简体。
+
+只返回纯JSON数组，不要用markdown代码块包裹：
+[{"question":"题目","answer":"**1. 要点一**\n内容...\n\n**2. 要点二**\n内容...","options":[],"type":"essay","explanation":"","chapter":""}]"""
 
                 chatCompletion(prompt, "OCR原始文字：\n$ocrText", { aiResult ->
                     Log.d("PsyMap-OCR", "AI结构化结果(前500字): ${aiResult.take(500)}")
@@ -230,13 +244,7 @@ object AiService {
                         if (list.isNullOrEmpty()) {
                             onError("AI未能从OCR文字中提取题目")
                         } else {
-                            onResult(list.map { item ->
-                                val q = item["question"] as? String ?: ""
-                                val a = item["answer"] as? String ?: ""
-                                @Suppress("UNCHECKED_CAST")
-                                val opts = (item["options"] as? List<String>) ?: emptyList()
-                                Triple(q, a, opts)
-                            })
+                            onResult(list)
                         }
                     } catch (e: Exception) {
                         onError("解析失败: ${e.message}")
