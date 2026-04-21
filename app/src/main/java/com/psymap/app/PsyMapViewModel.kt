@@ -169,11 +169,16 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         TencentConfig.init(prefs)
 
         val banksJson = prefs.getString("questionBanks", "[]") ?: "[]"
-        questionBanks = (gson.fromJson<List<QuestionBank>>(banksJson, object : TypeToken<List<QuestionBank>>() {}.type) ?: emptyList())
-            .filter { !it.id.startsWith("__") }
+        val rawBanks: List<QuestionBank> = gson.fromJson(banksJson, object : TypeToken<List<QuestionBank>>() {}.type) ?: emptyList()
+        val cleanBanks = rawBanks.filter { !it.id.startsWith("__") }
+        questionBanks = cleanBanks
+        if (cleanBanks.size < rawBanks.size) saveBanks() // 清理后保存
 
         val questionsJson = prefs.getString("questions", "[]") ?: "[]"
-        questions = gson.fromJson(questionsJson, object : TypeToken<List<Question>>() {}.type) ?: emptyList()
+        val rawQuestions: List<Question> = gson.fromJson(questionsJson, object : TypeToken<List<Question>>() {}.type) ?: emptyList()
+        val cleanQuestions = rawQuestions.filter { !it.bankId.startsWith("__") }
+        questions = cleanQuestions
+        if (cleanQuestions.size < rawQuestions.size) saveQuestions() // 清理后保存
 
         val checkInJson = prefs.getString("checkIns", "[]") ?: "[]"
         checkInRecords = gson.fromJson(checkInJson, object : TypeToken<List<DailyCheckIn>>() {}.type) ?: emptyList()
@@ -236,6 +241,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     // 清理旧版遗留的特殊 bank（__mindmap__ / __audio__）
                     questionBanks = questionBanks.filter { !it.id.startsWith("__") }
                     questions = questions.filter { !it.bankId.startsWith("__") }
+                    saveBanks(); saveQuestions()
 
                     // 合并题库：云端有本地没有的 → 加入；都有的 → 保留本地（名字可能改了）
                     val localBankIds = questionBanks.map { it.id }.toSet()
