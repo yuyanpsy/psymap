@@ -99,6 +99,16 @@ fun ProfilePage(vm: PsyMapViewModel) {
             }
         }
 
+        // 名言
+        item {
+            Text(
+                "「持续坚定的努力，才是获得成功与回报的根本原因。」\n—— 卡罗尔·德韦克（Carol S. Dweck）",
+                fontSize = 12.sp, color = Color(0xFF888888), lineHeight = 18.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)
+            )
+        }
+
         // 目标分数展示
         item {
             Card(
@@ -120,12 +130,13 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         }
                     }
                     Spacer(Modifier.height(8.dp))
+                    val scoreColors = listOf(Color(0xFFD32F2F), Color(0xFF1976D2), Color(0xFFEF6C00), Color(0xFF9C27B0), Color(0xFF00796B), Color(0xFF5D4037))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        vm.targetScores.forEach { (name, score) ->
-                            ScoreItem(name, score, Color(0xFF1976D2))
+                        vm.targetScores.entries.forEachIndexed { index, (name, score) ->
+                            ScoreItem(name, score, scoreColors[index % scoreColors.size])
                         }
                         ScoreItem("总分", vm.targetTotalScore, Color(0xFF4CAF50))
                     }
