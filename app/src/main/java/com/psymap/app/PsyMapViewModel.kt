@@ -59,6 +59,12 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                                 questionBanks, questions, checkInRecords, dailyTargets,
                                 targetPoliticsScore, targetEnglishScore, targetPsyScore
                             )
+                            // 同步文件
+                            val app = getApplication<android.app.Application>()
+                            val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
+                            val mindmapDir = java.io.File(app.filesDir, "mindmaps")
+                            SupabaseClient.syncAudioFiles(audioDir)
+                            SupabaseClient.syncMindmapFiles(mindmapDir)
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                 lastPushedHash = currentHash
                                 localDataHash = currentHash
@@ -315,6 +321,12 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                             questionBanks, questions, checkInRecords, dailyTargets,
                             targetPoliticsScore, targetEnglishScore, targetPsyScore
                         )
+                        // 同步文件（音频 + 思维导图）
+                        val app = getApplication<android.app.Application>()
+                        val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
+                        val mindmapDir = java.io.File(app.filesDir, "mindmaps")
+                        SupabaseClient.syncAudioFiles(audioDir)
+                        SupabaseClient.syncMindmapFiles(mindmapDir)
                     }
                 }
             } catch (e: Exception) {

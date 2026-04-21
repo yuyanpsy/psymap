@@ -1,5 +1,6 @@
 package com.psymap.app
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -7,6 +8,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 
 /**
  * Supabase REST API 客户端
@@ -418,5 +420,211 @@ object SupabaseClient {
             targetScores = fetchTargetScores(),
             settings = fetchSettings()
         )
+    }
+
+    // ========== Storage 文件上传/下载 ==========
+
+    /** 上传文件到 Supabase Storage */
+    suspend fun uploadFile(bucket: String, path: String, file: File, contentType: String = "application/octet-stream"): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "$supabaseUrl/storage/v1/object/$bucket/$path"
+            val body = file.readBytes().toRequestBody(contentType.toMediaType())
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", supabaseKey)
+                .addHeader("Authorization", "Bearer $supabaseKey")
+                .addHeader("Content-Type", contentType)
+                .put(body)  // PUT for upsert
+                .build()
+            val response = client.newCall(request).execute()
+            val success = response.isSuccessful || response.code == 200
+            response.close()
+            if (!success) Log.w("Supabase-Storage", "Upload failed: $path, code=${response.code}")
+            success
+        } catch (e: Exception) {
+            Log.w("Supabase-Storage", "Upload error: $path, ${e.message}")
+            false
+        }
+    }
+
+    /** 从 Supabase Storage 下载文件 */
+    suspend fun downloadFile(bucket: String, path: String, destFile: File): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "$supabaseUrl/storage/v1/object/$bucket/$path"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", supabaseKey)
+                .addHeader("Authorization", "Bearer $supabaseKey")
+                .get()
+                .build()
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                destFile.parentFile?.mkdirs()
+                response.body?.byteStream()?.use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                response.close()
+                true
+            } else {
+                response.close()
+                false
+            }
+        } catch (e: Exception) {
+            Log.w("Supabase-Storage", "Download error: $path, ${e.message}")
+            false
+        }
+    }
+
+    /** 删除 Storage 文件 */
+    suspend fun deleteFile(bucket: String, path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "$supabaseUrl/storage/v1/object/$bucket/$path"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", supabaseKey)
+                .addHeader("Authorization", "Bearer $supabaseKey")
+                .delete()
+                .build()
+            client.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) { false }
+    }
+
+    // ========== 音频文件元数据 CRUD ==========
+    data class AudioFileMeta(val id: String, val filename: String, val fileSize: Long, val storagePath: String, val createdAt: Long)
+
+    suspend fun upsertAudioMeta(meta: AudioFileMeta) {
+        val uid = userId ?: return
+        upsert("audio_files", gson.toJson(listOf(mapOf(
+            "id" to meta.id, "user_id" to uid, "filename" to meta.filename,
+            "file_size" to meta.fileSize, "storage_path" to meta.storagePath,
+            "created_at" to meta.createdAt, "updated_at" to System.currentTimeMillis()
+        ))), "id")
+    }
+
+    suspend fun fetchAudioMetas(): List<AudioFileMeta> {
+        val uid = userId ?: return emptyList()
+        val json = get("audio_files", "?user_id=eq.$uid&order=created_at.desc") ?: return emptyList()
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            list.map { row ->
+                AudioFileMeta(
+                    id = row["id"] as? String ?: "",
+                    filename = row["filename"] as? String ?: "",
+                    fileSize = (row["file_size"] as? Double)?.toLong() ?: 0,
+                    storagePath = row["storage_path"] as? String ?: "",
+                    createdAt = (row["created_at"] as? Double)?.toLong() ?: 0
+                )
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    suspend fun deleteAudioMeta(id: String) {
+        val uid = userId ?: return
+        delete("audio_files", "?id=eq.$id&user_id=eq.$uid")
+    }
+
+    // ========== 思维导图文件元数据 CRUD ==========
+    data class MindmapFileMeta(val id: String, val name: String, val fileType: String, val fileSize: Long, val storagePath: String, val localFileName: String, val createdAt: Long)
+
+    suspend fun upsertMindmapMeta(meta: MindmapFileMeta) {
+        val uid = userId ?: return
+        upsert("mindmap_files", gson.toJson(listOf(mapOf(
+            "id" to meta.id, "user_id" to uid, "name" to meta.name,
+            "file_type" to meta.fileType, "file_size" to meta.fileSize,
+            "storage_path" to meta.storagePath, "local_file_name" to meta.localFileName,
+            "created_at" to meta.createdAt, "updated_at" to System.currentTimeMillis()
+        ))), "id")
+    }
+
+    suspend fun fetchMindmapMetas(): List<MindmapFileMeta> {
+        val uid = userId ?: return emptyList()
+        val json = get("mindmap_files", "?user_id=eq.$uid&order=created_at.desc") ?: return emptyList()
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            list.map { row ->
+                MindmapFileMeta(
+                    id = row["id"] as? String ?: "",
+                    name = row["name"] as? String ?: "",
+                    fileType = row["file_type"] as? String ?: "mm",
+                    fileSize = (row["file_size"] as? Double)?.toLong() ?: 0,
+                    storagePath = row["storage_path"] as? String ?: "",
+                    localFileName = row["local_file_name"] as? String ?: "",
+                    createdAt = (row["created_at"] as? Double)?.toLong() ?: 0
+                )
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    suspend fun deleteMindmapMeta(id: String) {
+        val uid = userId ?: return
+        delete("mindmap_files", "?id=eq.$id&user_id=eq.$uid")
+    }
+
+    // ========== 文件同步：上传本地文件到云端 ==========
+    suspend fun syncAudioFiles(audioDir: File) {
+        val uid = userId ?: return
+        if (!audioDir.exists()) return
+        val cloudMetas = fetchAudioMetas()
+        val cloudIds = cloudMetas.map { it.id }.toSet()
+
+        // 上传本地有但云端没有的
+        audioDir.listFiles()?.filter { it.isFile && it.length() > 0 }?.forEach { file ->
+            val fileId = "audio_${uid}_${file.name}"
+            if (fileId !in cloudIds) {
+                val storagePath = "$uid/audio/${file.name}"
+                if (uploadFile("psymap-audio", storagePath, file, "audio/mpeg")) {
+                    upsertAudioMeta(AudioFileMeta(fileId, file.name, file.length(), storagePath, file.lastModified()))
+                    Log.d("Supabase-Sync", "Uploaded audio: ${file.name}")
+                }
+            }
+        }
+
+        // 下载云端有但本地没有的
+        val localFiles = audioDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+        for (meta in cloudMetas) {
+            if (meta.filename !in localFiles && meta.storagePath.isNotBlank()) {
+                val destFile = File(audioDir, meta.filename)
+                if (downloadFile("psymap-audio", meta.storagePath, destFile)) {
+                    Log.d("Supabase-Sync", "Downloaded audio: ${meta.filename}")
+                }
+            }
+        }
+    }
+
+    suspend fun syncMindmapFiles(mindmapDir: File) {
+        val uid = userId ?: return
+        if (!mindmapDir.exists()) mindmapDir.mkdirs()
+        val cloudMetas = fetchMindmapMetas()
+        val cloudIds = cloudMetas.map { it.id }.toSet()
+
+        // 从 MindMapStore 获取本地项目列表需要 Context，这里只处理文件层面
+        // 上传本地有但云端没有的文件
+        mindmapDir.listFiles()?.filter { it.isFile && it.length() > 0 }?.forEach { file ->
+            val fileId = "mm_${uid}_${file.name}"
+            if (fileId !in cloudIds) {
+                val storagePath = "$uid/mindmaps/${file.name}"
+                if (uploadFile("psymap-mindmaps", storagePath, file)) {
+                    upsertMindmapMeta(MindmapFileMeta(fileId, file.nameWithoutExtension, guessFileType(file.name), file.length(), storagePath, file.name, file.lastModified()))
+                    Log.d("Supabase-Sync", "Uploaded mindmap: ${file.name}")
+                }
+            }
+        }
+
+        // 下载云端有但本地没有的
+        val localFiles = mindmapDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+        for (meta in cloudMetas) {
+            if (meta.localFileName.isNotBlank() && meta.localFileName !in localFiles && meta.storagePath.isNotBlank()) {
+                val destFile = File(mindmapDir, meta.localFileName)
+                if (downloadFile("psymap-mindmaps", meta.storagePath, destFile)) {
+                    Log.d("Supabase-Sync", "Downloaded mindmap: ${meta.localFileName}")
+                }
+            }
+        }
+    }
+
+    private fun guessFileType(filename: String): String = when {
+        filename.endsWith(".mm") -> "mm"
+        filename.endsWith(".pdf") -> "pdf"
+        else -> "image"
     }
 }
