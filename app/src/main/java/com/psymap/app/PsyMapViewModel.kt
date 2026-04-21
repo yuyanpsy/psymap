@@ -169,7 +169,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         TencentConfig.init(prefs)
 
         val banksJson = prefs.getString("questionBanks", "[]") ?: "[]"
-        questionBanks = gson.fromJson(banksJson, object : TypeToken<List<QuestionBank>>() {}.type) ?: emptyList()
+        questionBanks = (gson.fromJson<List<QuestionBank>>(banksJson, object : TypeToken<List<QuestionBank>>() {}.type) ?: emptyList())
+            .filter { !it.id.startsWith("__") }
 
         val questionsJson = prefs.getString("questions", "[]") ?: "[]"
         questions = gson.fromJson(questionsJson, object : TypeToken<List<Question>>() {}.type) ?: emptyList()
@@ -232,6 +233,10 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val data = SupabaseClient.pullAll()
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    // 清理旧版遗留的特殊 bank（__mindmap__ / __audio__）
+                    questionBanks = questionBanks.filter { !it.id.startsWith("__") }
+                    questions = questions.filter { !it.bankId.startsWith("__") }
+
                     // 合并题库：云端有本地没有的 → 加入；都有的 → 保留本地（名字可能改了）
                     val localBankIds = questionBanks.map { it.id }.toSet()
                     val cloudBankIds = data.banks.map { it.id }.toSet()

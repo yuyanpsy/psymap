@@ -425,11 +425,13 @@ fun ScoreSettingDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 items.forEachIndexed { index, (name, score) ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                        OutlinedTextField(
+                        androidx.compose.foundation.text.BasicTextField(
                             value = name,
                             onValueChange = { items[index] = it to score },
-                            modifier = Modifier.width(90.dp).height(48.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                            modifier = Modifier.width(80.dp)
+                                .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = Color(0xFF333333)),
                             singleLine = true
                         )
                         Spacer(Modifier.width(8.dp))
