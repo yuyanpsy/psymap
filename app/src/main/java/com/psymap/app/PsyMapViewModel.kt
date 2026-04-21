@@ -110,8 +110,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     // AI功能开关（控制所有付费API调用）
     var aiEnabled by mutableStateOf(false)
 
-    // 题库
+    // 题库（过滤掉内部同步用的特殊 bank）
     var questionBanks by mutableStateOf(listOf<QuestionBank>())
+    val visibleBanks: List<QuestionBank> get() = questionBanks.filter { !it.id.startsWith("__") }
     var questions by mutableStateOf(listOf<Question>())
 
     // 学习

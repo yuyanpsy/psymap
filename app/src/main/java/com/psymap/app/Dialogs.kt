@@ -231,7 +231,7 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 
 @Composable
 fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit) {
-    var selectedBankId by remember { mutableStateOf(vm.questionBanks.firstOrNull()?.id ?: "") }
+    var selectedBankId by remember { mutableStateOf(vm.visibleBanks.firstOrNull()?.id ?: "") }
     var importing by remember { mutableStateOf(false) }
     val isLoading by vm.isLoading.collectAsState()
     val context = LocalContext.current
@@ -289,7 +289,7 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    vm.questionBanks.forEach { bank ->
+                    vm.visibleBanks.forEach { bank ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -351,7 +351,7 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
 fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -> Unit,
                             filterTypes: Set<QuestionType> = emptySet(),
                             filterFrequent: Boolean = false, filterMemorize: Boolean = false) {
-    val bank = vm.questionBanks.find { it.id == bankId } ?: return
+    val bank = vm.visibleBanks.find { it.id == bankId } ?: return
     val allQuestions = vm.getQuestionsForBank(bankId)
     val questions = allQuestions.filter { q ->
         (filterTypes.isEmpty() || q.type in filterTypes) &&
@@ -650,7 +650,7 @@ fun QuestionDetailDialog(
     var editExplanation by remember(question.id) { mutableStateOf(question.explanation) }
     var editOptions by remember(question.id) { mutableStateOf(question.options.joinToString("\n")) }
     val currentIndex = if (questionList.isNotEmpty()) questionList.indexOfFirst { it.id == question.id } else -1
-    val bank = vm.questionBanks.find { it.id == question.bankId }
+    val bank = vm.visibleBanks.find { it.id == question.bankId }
     val availableTypes = bank?.subject?.availableQuestionTypes() ?: QuestionType.entries.toList()
     // 从 vm 实时获取最新的 question 状态
     val liveQuestion = vm.questions.find { it.id == question.id } ?: question
@@ -855,7 +855,7 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
     var content by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
     var explanationText by remember { mutableStateOf("") }
-    val bank = vm.questionBanks.find { it.id == bankId }
+    val bank = vm.visibleBanks.find { it.id == bankId }
     val availableTypes = bank?.subject?.availableQuestionTypes() ?: QuestionType.entries
     var selectedType by remember { mutableStateOf(availableTypes.first()) }
     var optionsText by remember { mutableStateOf("") }
