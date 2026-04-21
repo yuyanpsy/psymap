@@ -293,6 +293,7 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable { if (!importing) selectedBankId = bank.id }
                                 .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
