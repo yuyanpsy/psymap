@@ -75,7 +75,7 @@ fun HomePage(vm: PsyMapViewModel) {
     // 拍照搜题
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
         if (bitmap != null && vm.isAdmin) {
-            val bankId = vm.visibleBanks.firstOrNull()?.id ?: ""
+            val bankId = vm.questionBanks.firstOrNull()?.id ?: ""
             if (bankId.isNotBlank()) vm.recognizeAndImport(bitmap, bankId)
         }
     }
@@ -169,7 +169,7 @@ fun HomePage(vm: PsyMapViewModel) {
                     }
                 }
             }
-            items(vm.visibleBanks) { bank ->
+            items(vm.questionBanks) { bank ->
                 QuestionBankCard(bank, vm) { selectedBankId = bank.id; showBankDetail = true }
             }
         }
@@ -336,7 +336,7 @@ fun QuestionBankCard(bank: QuestionBank, vm: PsyMapViewModel, onClick: () -> Uni
 
 @Composable
 fun SearchResultItem(question: Question, vm: PsyMapViewModel, onClick: () -> Unit) {
-    val bank = vm.visibleBanks.find { it.id == question.bankId }
+    val bank = vm.questionBanks.find { it.id == question.bankId }
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -748,7 +748,7 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     }
                 } else {
                     grouped.forEach { (bankId, questions) ->
-                        val bank = vm.visibleBanks.find { it.id == bankId }
+                        val bank = vm.questionBanks.find { it.id == bankId }
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                                 .clickable {
@@ -858,7 +858,7 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     }
                 } else {
                     grouped.forEach { (bankId, questions) ->
-                        val bank = vm.visibleBanks.find { it.id == bankId }
+                        val bank = vm.questionBanks.find { it.id == bankId }
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                                 .clickable {
@@ -899,11 +899,11 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
-    var selectedBankId by remember { mutableStateOf(vm.visibleBanks.firstOrNull()?.id ?: "") }
+    var selectedBankId by remember { mutableStateOf(vm.questionBanks.firstOrNull()?.id ?: "") }
     var newBankName by remember { mutableStateOf("") }
     var isCreatingNew by remember { mutableStateOf(false) }
     var newBankSubject by remember { mutableStateOf(Subject.GENERAL_PSY) }
-    val selectedBank = vm.visibleBanks.find { it.id == selectedBankId }
+    val selectedBank = vm.questionBanks.find { it.id == selectedBankId }
     val availableTypes = selectedBank?.subject?.availableQuestionTypes() ?: QuestionType.entries.toList()
     var selectedType by remember { mutableStateOf<QuestionType?>(null) }
     var tagFrequent by remember { mutableStateOf(false) }
@@ -1030,7 +1030,7 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                 Text("选择题库", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
 
-                vm.visibleBanks.forEach { bank ->
+                vm.questionBanks.forEach { bank ->
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
                             selectedBankId = bank.id; isCreatingNew = false
@@ -1130,8 +1130,8 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var showAiPlan by remember { mutableStateOf(false) }
 
     // 统计
-    val totalTarget = vm.visibleBanks.sumOf { vm.dailyTargets[it.id] ?: 0 }
-    val totalDone = vm.visibleBanks.sumOf { vm.todayCheckIn.bankProgress[it.id] ?: 0 }
+    val totalTarget = vm.questionBanks.sumOf { vm.dailyTargets[it.id] ?: 0 }
+    val totalDone = vm.questionBanks.sumOf { vm.todayCheckIn.bankProgress[it.id] ?: 0 }
     val overallProgress = if (totalTarget > 0) (totalDone.toFloat() / totalTarget).coerceAtMost(1f) else 0f
 
     Dialog(
@@ -1209,7 +1209,7 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         Text("题库进度", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
                         Spacer(Modifier.height(12.dp))
 
-                        vm.visibleBanks.forEachIndexed { index, bank ->
+                        vm.questionBanks.forEachIndexed { index, bank ->
                             val target = vm.dailyTargets[bank.id] ?: 0
                             val done = vm.todayCheckIn.bankProgress[bank.id] ?: 0
                             val progress = if (target > 0) (done.toFloat() / target).coerceAtMost(1f) else 0f
@@ -1252,7 +1252,7 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                     Text("未设定", fontSize = 13.sp, color = Color(0xFFBDBDBD))
                                 }
                             }
-                            if (index < vm.visibleBanks.size - 1) {
+                            if (index < vm.questionBanks.size - 1) {
                                 HorizontalDivider(color = Color(0xFFF5F5F5))
                             }
                         }
@@ -1310,7 +1310,7 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 @Composable
 fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     val targets = remember { mutableStateMapOf<String, String>().apply {
-        vm.visibleBanks.forEach { bank -> put(bank.id, (vm.dailyTargets[bank.id] ?: 10).toString()) }
+        vm.questionBanks.forEach { bank -> put(bank.id, (vm.dailyTargets[bank.id] ?: 10).toString()) }
     }}
     val context = LocalContext.current
 
@@ -1321,7 +1321,7 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             Column {
                 Text("设定每个题库每天要复习的题目数量\n保存后将自动创建日历提醒（每天16:00）", fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(12.dp))
-                vm.visibleBanks.forEach { bank ->
+                vm.questionBanks.forEach { bank ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp, modifier = Modifier.weight(1f))
                         NumberStepper(
@@ -1337,7 +1337,7 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             Button(onClick = {
                 val map = targets.mapValues { (it.value.toIntOrNull() ?: 10) }
                 vm.saveDailyTargets(map)
-                val activeBanks = vm.visibleBanks.filter { (map[it.id] ?: 0) > 0 }
+                val activeBanks = vm.questionBanks.filter { (map[it.id] ?: 0) > 0 }
                 if (activeBanks.isNotEmpty()) {
                     try {
                         val desc = activeBanks.joinToString("\n") { bank ->
@@ -1387,7 +1387,7 @@ private val ttsQuestionTypes = setOf(
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    var selectedBankId by remember { mutableStateOf(vm.visibleBanks.firstOrNull()?.id ?: "") }
+    var selectedBankId by remember { mutableStateOf(vm.questionBanks.firstOrNull()?.id ?: "") }
     var questionCount by remember { mutableStateOf("10") }
     var shuffle by remember { mutableStateOf(false) }
     var selectedVoice by remember { mutableStateOf(voiceOptions[0]) }
@@ -1430,7 +1430,7 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                         Text("选择题库", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF333333))
                         Spacer(Modifier.height(4.dp))
-                        vm.visibleBanks.forEach { bank ->
+                        vm.questionBanks.forEach { bank ->
                             val count = vm.getQuestionsForBank(bank.id).size
                             Row(
                                 modifier = Modifier.fillMaxWidth()
@@ -1539,7 +1539,7 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     isGenerating = true
                     progress = "准备中..."
                     val bankQuestions = vm.getQuestionsForBank(selectedBankId)
-                    val bank = vm.visibleBanks.find { it.id == selectedBankId }
+                    val bank = vm.questionBanks.find { it.id == selectedBankId }
                     val bankName = bank?.name ?: "题库"
                     val voiceOpt = selectedVoice
                     val cnt = (questionCount.toIntOrNull() ?: 10)
@@ -2108,7 +2108,7 @@ fun AiPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             onClick = {
                                 if (userInput.isBlank()) return@Button
                                 isLoading = true
-                                val bankNames = vm.visibleBanks.joinToString("、") { it.name }
+                                val bankNames = vm.questionBanks.joinToString("、") { it.name }
                                 val prompt = """你是考研备考规划专家。用户有以下题库：$bankNames。
 请根据用户的学习需求，为每个相关题库制定每日学习题目数量。
 你必须返回两部分：
@@ -2141,7 +2141,7 @@ fun AiPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                                 vm.dailyTargets.forEach { (k, v) -> targets[k] = v }
                                                 // 匹配题库名称到ID
                                                 planMap.forEach { (name, count) ->
-                                                    val bank = vm.visibleBanks.find { it.name.contains(name) || name.contains(it.name) }
+                                                    val bank = vm.questionBanks.find { it.name.contains(name) || name.contains(it.name) }
                                                     if (bank != null) targets[bank.id] = count.toInt()
                                                 }
                                                 parsedTargets = targets
@@ -2165,7 +2165,7 @@ fun AiPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     // 预览模式
                     Text("AI制定的学习计划预览", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(8.dp))
-                    vm.visibleBanks.forEach { bank ->
+                    vm.questionBanks.forEach { bank ->
                         val target = parsedTargets[bank.id] ?: 0
                         if (target > 0) {
                             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2238,7 +2238,7 @@ private fun generateExamQuestions(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    var selectedBankIds by remember { mutableStateOf(vm.visibleBanks.map { it.id }.toSet()) }
+    var selectedBankIds by remember { mutableStateOf(vm.questionBanks.map { it.id }.toSet()) }
     var totalMinutes by remember { mutableStateOf("60") }
     var selectedTypes by remember { mutableStateOf(QuestionType.entries.toSet()) }
     var showExamSession by remember { mutableStateOf(false) }
@@ -2261,7 +2261,7 @@ fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
                 Text("选择题库", fontWeight = FontWeight.Medium, fontSize = 15.sp)
                 Spacer(Modifier.height(8.dp))
-                vm.visibleBanks.forEach { bank ->
+                vm.questionBanks.forEach { bank ->
                     val count = vm.getQuestionsForBank(bank.id).size
                     Row(modifier = Modifier.fillMaxWidth().clickable {
                         selectedBankIds = if (bank.id in selectedBankIds) selectedBankIds - bank.id else selectedBankIds + bank.id

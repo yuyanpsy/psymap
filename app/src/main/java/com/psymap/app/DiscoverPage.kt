@@ -28,14 +28,14 @@ fun DiscoverPage(vm: PsyMapViewModel) {
     var filterFrequent by remember { mutableStateOf(false) }
     var filterMemorize by remember { mutableStateOf(false) }
 
-    val selectedBank = if (selectedBankName != null) vm.visibleBanks.find { it.id == selectedBankName } else null
+    val selectedBank = if (selectedBankName != null) vm.questionBanks.find { it.id == selectedBankName } else null
     val availableTypes: List<QuestionType> = when {
         selectedBank != null -> selectedBank.subject.availableQuestionTypes()
         else -> QuestionType.entries.toList()
     }
 
     // 计算当前筛选范围内每个题型实际有多少题
-    val filteredBanks = vm.visibleBanks.filter { selectedBankName == null || it.id == selectedBankName }
+    val filteredBanks = vm.questionBanks.filter { selectedBankName == null || it.id == selectedBankName }
     val allFilteredQuestions = filteredBanks.flatMap { vm.getQuestionsForBank(it.id) }
     val typeCounts = availableTypes.associateWith { type -> allFilteredQuestions.count { it.type == type } }
 
@@ -47,7 +47,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
         ) {
             SubjectSideItem(label = "全部", selected = selectedBankName == null,
                 onClick = { selectedBankName = null; selectedTypes = emptySet() })
-            vm.visibleBanks.forEach { bank ->
+            vm.questionBanks.forEach { bank ->
                 SubjectSideItem(label = bank.name, selected = selectedBankName == bank.id,
                     onClick = { selectedBankName = bank.id; selectedTypes = emptySet() })
             }

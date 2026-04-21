@@ -80,7 +80,7 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(vm.visibleBanks) { bank ->
+        items(vm.questionBanks) { bank ->
             val questions = vm.getQuestionsForBank(bank.id)
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -152,7 +152,7 @@ fun WrongBookList(vm: PsyMapViewModel, onClickQuestion: (Question) -> Unit) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("共 ${wrongQuestions.size} 道错题  ·  点击可编辑", fontSize = 13.sp, color = Color.Gray) }
         items(wrongQuestions) { question ->
-            val bank = vm.visibleBanks.find { it.id == question.bankId }
+            val bank = vm.questionBanks.find { it.id == question.bankId }
             Card(
                 modifier = Modifier.fillMaxWidth().clickable { onClickQuestion(question) },
                 shape = RoundedCornerShape(8.dp),
@@ -193,7 +193,7 @@ fun FavoritesList(vm: PsyMapViewModel, onClickQuestion: (Question) -> Unit) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("点击可编辑", fontSize = 13.sp, color = Color.Gray) }
         items(favorites) { question ->
-            val bank = vm.visibleBanks.find { it.id == question.bankId }
+            val bank = vm.questionBanks.find { it.id == question.bankId }
             Card(
                 modifier = Modifier.fillMaxWidth().clickable { onClickQuestion(question) },
                 shape = RoundedCornerShape(8.dp),

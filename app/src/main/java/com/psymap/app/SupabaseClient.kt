@@ -8,7 +8,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.File
 
 /**
  * Supabase REST API 客户端
@@ -168,7 +167,7 @@ object SupabaseClient {
 
     suspend fun fetchBanks(): List<QuestionBank> {
         val uid = userId ?: return emptyList()
-        val json = get("banks", "?user_id=eq.$uid&id=neq.$MINDMAP_BANK_ID&id=neq.$AUDIO_BANK_ID&order=created_at") ?: return emptyList()
+        val json = get("banks", "?user_id=eq.$uid&order=created_at") ?: return emptyList()
         return try {
             val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
             list.map { row ->
@@ -225,7 +224,7 @@ object SupabaseClient {
 
     suspend fun fetchQuestions(): List<Question> {
         val uid = userId ?: return emptyList()
-        val json = get("questions", "?user_id=eq.$uid&bank_id=neq.$MINDMAP_BANK_ID&bank_id=neq.$AUDIO_BANK_ID") ?: return emptyList()
+        val json = get("questions", "?user_id=eq.$uid") ?: return emptyList()
         return try {
             val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
             list.map { questionFromMap(it) }
@@ -421,144 +420,5 @@ object SupabaseClient {
             settings = fetchSettings()
         )
     }
-
-    // ========== 思维导图和音频同步（复用 questions 表） ==========
-    private val MINDMAP_BANK_ID = "__mindmap_files__"
-    private val AUDIO_BANK_ID = "__audio_files__"
-
-    /** 确保特殊 bank 记录存在 */
-    private suspend fun ensureSpecialBanks() {
-        val uid = userId ?: return
-        Log.d("PsyMap-Sync", "ensureSpecialBanks for uid=$uid")
-        val result1 = upsert("banks", gson.toJson(listOf(mapOf(
-            "id" to MINDMAP_BANK_ID, "user_id" to uid, "name" to "__mindmap__",
-            "subject" to "general_psy", "question_count" to 0, "created_at" to 0
-        ))), "id")
-        Log.d("PsyMap-Sync", "ensureSpecialBanks mindmap result: $result1")
-        val result2 = upsert("banks", gson.toJson(listOf(mapOf(
-            "id" to AUDIO_BANK_ID, "user_id" to uid, "name" to "__audio__",
-            "subject" to "general_psy", "question_count" to 0, "created_at" to 0
-        ))), "id")
-        Log.d("PsyMap-Sync", "ensureSpecialBanks audio result: $result2")
-    }
-
-    /** 上传思维导图到云端 */
-    suspend fun upsertMindmapAsQuestion(item: MindMapItem, content: String) {
-        val uid = userId ?: return
-        val map = mapOf(
-            "id" to item.id, "user_id" to uid, "bank_id" to MINDMAP_BANK_ID,
-            "content" to content, "answer" to item.name,
-            "explanation" to item.localFileName,
-            "type" to "mindmap",
-            "chapter" to item.fileType,
-            "options" to emptyList<String>(),
-            "review_count" to 0, "is_in_wrong_book" to false, "is_in_favorites" to false,
-            "correct_count" to 0, "wrong_count" to 0, "is_frequent" to false,
-            "is_memorize" to false, "tts_generated" to false
-        )
-        upsert("questions", gson.toJson(listOf(map)), "id")
-    }
-
-    /** 获取云端所有思维导图 */
-    suspend fun fetchMindmapQuestions(): List<Map<String, Any>> {
-        val uid = userId ?: return emptyList()
-        val json = get("questions", "?user_id=eq.$uid&bank_id=eq.$MINDMAP_BANK_ID&type=eq.mindmap") ?: return emptyList()
-        return try {
-            gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type) ?: emptyList()
-        } catch (e: Exception) { emptyList() }
-    }
-
-    /** 同步思维导图：本地 ↔ 云端 */
-    suspend fun syncMindmapFiles(mindmapDir: File, localItems: List<MindMapItem>) {
-        val uid = userId ?: return
-        if (!mindmapDir.exists()) mindmapDir.mkdirs()
-        ensureSpecialBanks()
-        Log.d("PsyMap-Sync", "syncMindmapFiles: ${localItems.size} local items, dir=${mindmapDir.absolutePath}")
-
-        val cloudList = fetchMindmapQuestions()
-        Log.d("PsyMap-Sync", "syncMindmapFiles: ${cloudList.size} cloud items")
-        val cloudIds = cloudList.mapNotNull { it["id"] as? String }.toSet()
-        val localIds = localItems.map { it.id }.toSet()
-
-        // 上传本地有但云端没有的
-        for (item in localItems) {
-            if (item.id !in cloudIds) {
-                val file = File(mindmapDir, item.localFileName)
-                if (file.exists() && file.length() < 500_000) { // 限制 500KB
-                    val content = file.readText()
-                    upsertMindmapAsQuestion(item, content)
-                    Log.d("Supabase-Sync", "Uploaded mindmap: ${item.name}")
-                }
-            }
-        }
-
-        // 返回云端有但本地没有的（供 ViewModel 处理）
-    }
-
-    /** 获取云端有但本地没有的思维导图 */
-    suspend fun getNewMindmapsFromCloud(localIds: Set<String>): List<Triple<String, MindMapItem, String>> {
-        val cloudList = fetchMindmapQuestions()
-        val result = mutableListOf<Triple<String, MindMapItem, String>>()
-        for (row in cloudList) {
-            val id = row["id"] as? String ?: continue
-            if (id in localIds) continue
-            val name = row["answer"] as? String ?: ""
-            val localFileName = row["explanation"] as? String ?: ""
-            val fileType = row["chapter"] as? String ?: "mm"
-            val content = row["content"] as? String ?: ""
-            if (content.isBlank()) continue
-            val item = MindMapItem(id = id, name = name, fileType = fileType, localFileName = localFileName)
-            result.add(Triple(localFileName, item, content))
-        }
-        return result
-    }
-
-    // ========== 音频文件元数据同步（复用 questions 表，type=audio_meta） ==========
-
-    /** 上传音频元数据 */
-    suspend fun upsertAudioMeta(filename: String, fileSize: Long) {
-        val uid = userId ?: return
-        val id = "audio_${uid}_$filename"
-        val map = mapOf(
-            "id" to id, "user_id" to uid, "bank_id" to AUDIO_BANK_ID,
-            "content" to filename, "answer" to fileSize.toString(),
-            "type" to "audio_meta",
-            "explanation" to "", "chapter" to "",
-            "options" to emptyList<String>(),
-            "review_count" to 0, "is_in_wrong_book" to false, "is_in_favorites" to false,
-            "correct_count" to 0, "wrong_count" to 0, "is_frequent" to false,
-            "is_memorize" to false, "tts_generated" to false
-        )
-        upsert("questions", gson.toJson(listOf(map)), "id")
-    }
-
-    /** 获取云端音频元数据列表 */
-    suspend fun fetchAudioMetas(): List<Pair<String, Long>> {
-        val uid = userId ?: return emptyList()
-        val json = get("questions", "?user_id=eq.$uid&bank_id=eq.$AUDIO_BANK_ID&type=eq.audio_meta") ?: return emptyList()
-        return try {
-            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
-            list?.map { row ->
-                val filename = row["content"] as? String ?: ""
-                val size = (row["answer"] as? String)?.toLongOrNull() ?: 0
-                Pair(filename, size)
-            } ?: emptyList()
-        } catch (e: Exception) { emptyList() }
-    }
-
-    /** 同步音频元数据 */
-    suspend fun syncAudioMetas(audioDir: File) {
-        val uid = userId ?: return
-        if (!audioDir.exists()) return
-        ensureSpecialBanks()
-        val cloudMetas = fetchAudioMetas()
-        val cloudFilenames = cloudMetas.map { it.first }.toSet()
-
-        audioDir.listFiles()?.filter { it.isFile && it.length() > 0 }?.forEach { file ->
-            if (file.name !in cloudFilenames) {
-                upsertAudioMeta(file.name, file.length())
-                Log.d("Supabase-Sync", "Synced audio meta: ${file.name}")
-            }
-        }
-    }
 }
+

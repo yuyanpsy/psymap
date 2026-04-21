@@ -36,7 +36,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     val hasCloudChanges: Boolean get() = false // 云端变化在 pullAll 后通过对比检测
 
     private fun computeDataHash(): String {
-        val key = "${questionBanks.size}_${questions.size}_${questions.sumOf { it.reviewCount }}_${checkInRecords.size}_${dailyTargets.hashCode()}_${targetPoliticsScore}_${targetEnglishScore}_${targetPsyScore}"
+        val key = "${questionBanks.size}_${questions.size}_${questions.sumOf { it.reviewCount }}_${checkInRecords.size}_${dailyTargets.hashCode()}_${targetScores.hashCode()}"
         return key.hashCode().toString(16)
     }
 
@@ -57,15 +57,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                         try {
                             SupabaseClient.pushAll(
                                 questionBanks, questions, checkInRecords, dailyTargets,
-                                targetPoliticsScore, targetEnglishScore, targetPsyScore
+                                targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0
                             )
-                            // 同步文件
-                            val app = getApplication<android.app.Application>()
-                            val mindmapDir = java.io.File(app.filesDir, "mindmaps")
-                            val mindmapItems = MindMapStore.getItems(app)
-                            SupabaseClient.syncMindmapFiles(mindmapDir, mindmapItems)
-                            val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
-                            SupabaseClient.syncAudioMetas(audioDir)
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                 lastPushedHash = currentHash
                                 localDataHash = currentHash
@@ -110,9 +103,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     // AI功能开关（控制所有付费API调用）
     var aiEnabled by mutableStateOf(false)
 
-    // 题库（过滤掉内部同步用的特殊 bank）
+    // 题库
     var questionBanks by mutableStateOf(listOf<QuestionBank>())
-    val visibleBanks: List<QuestionBank> get() = questionBanks.filter { !it.id.startsWith("__") }
     var questions by mutableStateOf(listOf<Question>())
 
     // 学习
@@ -134,11 +126,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     // 搜索
     var searchResults by mutableStateOf(listOf<Question>())
 
-    // 目标分数
-    var targetPoliticsScore by mutableStateOf(0)
-    var targetEnglishScore by mutableStateOf(0)
-    var targetPsyScore by mutableStateOf(0)
-    val targetTotalScore: Int get() = targetPoliticsScore + targetEnglishScore + targetPsyScore
+    // 目标分数（灵活科目，key=科目名，value=分数）
+    var targetScores by mutableStateOf(mapOf<String, Int>())
+    val targetTotalScore: Int get() = targetScores.values.sum()
 
     // 考研倒计时
     val examDate = "2026-12-19"
@@ -193,10 +183,20 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         val targetsJson = prefs.getString("dailyTargets", "{}") ?: "{}"
         dailyTargets = gson.fromJson(targetsJson, object : TypeToken<Map<String, Int>>() {}.type) ?: emptyMap()
 
-        // 目标分数
-        targetPoliticsScore = prefs.getInt("targetPoliticsScore", 0)
-        targetEnglishScore = prefs.getInt("targetEnglishScore", 0)
-        targetPsyScore = prefs.getInt("targetPsyScore", 0)
+        // 目标分数（新格式：JSON map；兼容旧格式：3个固定字段）
+        val scoresJson = prefs.getString("targetScoresMap", null)
+        if (scoresJson != null) {
+            targetScores = try { gson.fromJson(scoresJson, object : TypeToken<Map<String, Int>>() {}.type) ?: emptyMap() } catch (e: Exception) { emptyMap() }
+        } else {
+            val p = prefs.getInt("targetPoliticsScore", 0)
+            val e = prefs.getInt("targetEnglishScore", 0)
+            val s = prefs.getInt("targetPsyScore", 0)
+            targetScores = mutableMapOf<String, Int>().apply {
+                if (p > 0) put("政治", p)
+                if (e > 0) put("英语", e)
+                if (s > 0) put("专业综合", s)
+            }
+        }
 
         val userJson = prefs.getString("user", null)
         if (userJson != null) {
@@ -295,11 +295,13 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                         prefs.edit().putString("dailyTargets", gson.toJson(dailyTargets)).apply()
                     }
 
-                    // 目标分数：取较大值
+                    // 目标分数：合并云端数据
                     val (p, e, s) = data.targetScores
-                    if (p > targetPoliticsScore || e > targetEnglishScore || s > targetPsyScore) {
-                        saveTargetScores(maxOf(p, targetPoliticsScore), maxOf(e, targetEnglishScore), maxOf(s, targetPsyScore))
-                    }
+                    val merged = targetScores.toMutableMap()
+                    if (p > 0) merged["政治"] = maxOf(merged["政治"] ?: 0, p)
+                    if (e > 0) merged["英语"] = maxOf(merged["英语"] ?: 0, e)
+                    if (s > 0) merged["专业综合"] = maxOf(merged["专业综合"] ?: 0, s)
+                    if (merged != targetScores) saveTargetScores(merged)
 
                     // AI 设置：云端有就用云端的
                     data.settings?.let { settings ->
@@ -327,28 +329,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     syncToCloud {
                         SupabaseClient.pushAll(
                             questionBanks, questions, checkInRecords, dailyTargets,
-                            targetPoliticsScore, targetEnglishScore, targetPsyScore
+                            targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0
                         )
-                        // 同步思维导图文件（内容存到 questions 表）
-                        val app = getApplication<android.app.Application>()
-                        val mindmapDir = java.io.File(app.filesDir, "mindmaps")
-                        val mindmapItems = MindMapStore.getItems(app)
-                        SupabaseClient.syncMindmapFiles(mindmapDir, mindmapItems)
-                        // 下载云端有但本地没有的思维导图
-                        val localIds = mindmapItems.map { it.id }.toSet()
-                        val newMaps = SupabaseClient.getNewMindmapsFromCloud(localIds)
-                        for ((localFileName, item, content) in newMaps) {
-                            val file = java.io.File(mindmapDir, localFileName)
-                            if (!file.exists()) {
-                                file.parentFile?.mkdirs()
-                                file.writeText(content)
-                                MindMapStore.addItem(app, item)
-                                Log.d("Supabase-Sync", "Downloaded mindmap: ${item.name}")
-                            }
-                        }
-                        // 同步音频元数据
-                        val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
-                        SupabaseClient.syncAudioMetas(audioDir)
                     }
                 }
             } catch (e: Exception) {
@@ -368,7 +350,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 SupabaseClient.pushAll(
                     questionBanks, questions, checkInRecords, dailyTargets,
-                    targetPoliticsScore, targetEnglishScore, targetPsyScore
+                    targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0
                 )
                 SupabaseClient.upsertSettings(apiKey, apiBaseUrl, modelName,
                     AiService.textModelName, aiEnabled)
@@ -1179,9 +1161,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             "apiKey" to apiKey,
             "apiBaseUrl" to apiBaseUrl,
             "modelName" to modelName,
-            "targetPoliticsScore" to targetPoliticsScore,
-            "targetEnglishScore" to targetEnglishScore,
-            "targetPsyScore" to targetPsyScore,
+            "targetScoresMap" to targetScores,
             "readingArticles" to (readingPrefs.getString("saved_articles", "[]") ?: "[]"),
             "readingMarks" to marksPrefs.all.mapValues { it.value?.toString() ?: "" },
             "psyArticles" to (psyPrefs.getString("psy_articles", "[]") ?: "[]")
@@ -1276,10 +1256,10 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             updateTodayCheckIn()
             refreshCheckInStats()
 
-            val pScore = (map["targetPoliticsScore"] as? Double)?.toInt() ?: 0
-            val eScore = (map["targetEnglishScore"] as? Double)?.toInt() ?: 0
-            val psyScore = (map["targetPsyScore"] as? Double)?.toInt() ?: 0
-            saveTargetScores(pScore, eScore, psyScore)
+            // 兼容旧版备份格式
+            
+            
+            run { val sm = mutableMapOf<String, Int>(); val p = (map["targetPoliticsScore"] as? Double)?.toInt() ?: 0; val e = (map["targetEnglishScore"] as? Double)?.toInt() ?: 0; val s = (map["targetPsyScore"] as? Double)?.toInt() ?: 0; if (p > 0) sm["政治"] = p; if (e > 0) sm["英语"] = e; if (s > 0) sm["专业综合"] = s; @Suppress("UNCHECKED_CAST") val newMap = (map["targetScoresMap"] as? Map<String, Double>)?.mapValues { it.value.toInt() }; if (newMap != null) sm.putAll(newMap); saveTargetScores(sm) }
 
             val fCount = questions.count { it.isFrequent }
             val mCount = questions.count { it.isMemorize }
@@ -1347,10 +1327,10 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             updateTodayCheckIn()
             refreshCheckInStats()
 
-            val pScore = (map["targetPoliticsScore"] as? Double)?.toInt() ?: 0
-            val eScore = (map["targetEnglishScore"] as? Double)?.toInt() ?: 0
-            val psyScore = (map["targetPsyScore"] as? Double)?.toInt() ?: 0
-            saveTargetScores(pScore, eScore, psyScore)
+            // 兼容旧版备份格式
+            
+            
+            run { val sm = mutableMapOf<String, Int>(); val p = (map["targetPoliticsScore"] as? Double)?.toInt() ?: 0; val e = (map["targetEnglishScore"] as? Double)?.toInt() ?: 0; val s = (map["targetPsyScore"] as? Double)?.toInt() ?: 0; if (p > 0) sm["政治"] = p; if (e > 0) sm["英语"] = e; if (s > 0) sm["专业综合"] = s; @Suppress("UNCHECKED_CAST") val newMap = (map["targetScoresMap"] as? Map<String, Double>)?.mapValues { it.value.toInt() }; if (newMap != null) sm.putAll(newMap); saveTargetScores(sm) }
 
             "恢复成功！\n题库: ${questionBanks.size}个, 题目: ${questions.size}道\n错题: ${questions.count { it.isInWrongBook }}道, 收藏: ${questions.count { it.isInFavorites }}道\n打卡: ${checkInRecords.size}天"
         } catch (e: Exception) {
@@ -1359,16 +1339,14 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ========== 目标分数 ==========
-    fun saveTargetScores(politics: Int, english: Int, psy: Int) {
-        targetPoliticsScore = politics
-        targetEnglishScore = english
-        targetPsyScore = psy
-        prefs.edit()
-            .putInt("targetPoliticsScore", politics)
-            .putInt("targetEnglishScore", english)
-            .putInt("targetPsyScore", psy)
-            .apply()
-        syncToCloud { SupabaseClient.upsertTargetScores(politics, english, psy) }
+    fun saveTargetScores(scores: Map<String, Int>) {
+        targetScores = scores
+        prefs.edit().putString("targetScoresMap", gson.toJson(scores)).apply()
+        // 兼容旧版云端同步（仍用3个字段）
+        val p = scores["政治"] ?: 0
+        val e = scores["英语"] ?: 0
+        val s = scores["专业综合"] ?: 0
+        syncToCloud { SupabaseClient.upsertTargetScores(p, e, s) }
     }
 
     // ========== 退出登录 ==========

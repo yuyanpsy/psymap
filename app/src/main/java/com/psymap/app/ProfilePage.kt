@@ -124,9 +124,9 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        ScoreItem("政治", vm.targetPoliticsScore, Color(0xFFD32F2F))
-                        ScoreItem("英语", vm.targetEnglishScore, Color(0xFF1976D2))
-                        ScoreItem("专业综合", vm.targetPsyScore, Color(0xFFEF6C00))
+                        vm.targetScores.forEach { (name, score) ->
+                            ScoreItem(name, score, Color(0xFF1976D2))
+                        }
                         ScoreItem("总分", vm.targetTotalScore, Color(0xFF4CAF50))
                     }
                 }
@@ -404,47 +404,62 @@ fun ScoreItem(label: String, score: Int, color: Color) {
 
 @Composable
 fun ScoreSettingDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
-    var politics by remember { mutableStateOf(vm.targetPoliticsScore.toString()) }
-    var english by remember { mutableStateOf(vm.targetEnglishScore.toString()) }
-    var psy by remember { mutableStateOf(vm.targetPsyScore.toString()) }
-    val total = (politics.toIntOrNull() ?: 0) + (english.toIntOrNull() ?: 0) + (psy.toIntOrNull() ?: 0)
+    // 可编辑的科目列表：每项是 (科目名, 分数字符串)
+    val items = remember {
+        mutableStateListOf<Pair<String, String>>().apply {
+            if (vm.targetScores.isEmpty()) {
+                add("政治" to "0"); add("英语" to "0"); add("专业综合" to "0")
+            } else {
+                vm.targetScores.forEach { (k, v) -> add(k to v.toString()) }
+            }
+        }
+    }
+    val total = items.sumOf { it.second.toIntOrNull() ?: 0 }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("目标分数设定") },
         text = {
             Column {
-                Text("设定各科目标分数，总分自动计算", fontSize = 13.sp, color = Color.Gray)
+                Text("设定各科目标分数，可新增/删除科目", fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("政治", fontSize = 14.sp, modifier = Modifier.width(100.dp))
-                    NumberStepper(value = politics, onValueChange = { politics = it }, min = 0, max = 100)
-                    Spacer(Modifier.width(4.dp)); Text("分", fontSize = 13.sp, color = Color.Gray)
+                items.forEachIndexed { index, (name, score) ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { items[index] = it to score },
+                            modifier = Modifier.width(90.dp).height(48.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                            singleLine = true
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        NumberStepper(value = score, onValueChange = { items[index] = name to it }, min = 0, max = 300)
+                        Spacer(Modifier.width(4.dp))
+                        Text("分", fontSize = 13.sp, color = Color.Gray)
+                        if (items.size > 1) {
+                            IconButton(onClick = { items.removeAt(index) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "删除", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            }
+                        }
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("英语", fontSize = 14.sp, modifier = Modifier.width(100.dp))
-                    NumberStepper(value = english, onValueChange = { english = it }, min = 0, max = 100)
-                    Spacer(Modifier.width(4.dp)); Text("分", fontSize = 13.sp, color = Color.Gray)
+                TextButton(onClick = { items.add("科目${items.size + 1}" to "0") }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("添加科目", fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("专业综合", fontSize = 14.sp, modifier = Modifier.width(100.dp))
-                    NumberStepper(value = psy, onValueChange = { psy = it }, min = 0, max = 300)
-                    Spacer(Modifier.width(4.dp)); Text("分", fontSize = 13.sp, color = Color.Gray)
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("总分: $total 分", fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                    color = Color(0xFF4CAF50))
+                Text("总分: $total 分", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF4CAF50))
             }
         },
         confirmButton = {
             Button(onClick = {
-                vm.saveTargetScores(
-                    politics.toIntOrNull() ?: 0,
-                    english.toIntOrNull() ?: 0,
-                    psy.toIntOrNull() ?: 0
-                )
+                val map = mutableMapOf<String, Int>()
+                items.forEach { (name, score) ->
+                    if (name.isNotBlank()) map[name] = score.toIntOrNull() ?: 0
+                }
+                vm.saveTargetScores(map)
                 onDismiss()
             }) { Text("保存") }
         },
