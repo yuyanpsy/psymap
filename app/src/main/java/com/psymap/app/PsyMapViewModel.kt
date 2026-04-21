@@ -639,19 +639,17 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ========== 主观题本地评分 ==========
-    fun gradeSubjectiveAnswer(question: Question, userAnswer: String) {
+    fun gradeSubjectiveAnswer(question: Question, userAnswer: String, isHandwritten: Boolean = false) {
         aiGradeResult = ""
         aiGradeScore = -1
 
         if (question.answer.isBlank()) {
-            // 本地无答案，无法评分，仅记录作答
             aiGradeScore = -1
             aiGradeResult = "该题暂无标准答案，无法自动评分"
             submitAnswer(question.id, userAnswer, false)
             return
         }
 
-        // 本地文本比对评分
         val correctAnswer = question.answer.trim()
         val userAns = userAnswer.trim()
 
@@ -661,41 +659,51 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
+        // 计算卷面分（手写答案时有效，最高20分）
+        val neatnessScore = if (isHandwritten) {
+            val charCount = userAns.replace(Regex("\\s+"), "").length
+            val lineCount = userAns.lines().filter { it.isNotBlank() }.size
+            when {
+                charCount > 80 && lineCount > 3 -> 18  // 字迹清晰、内容充实
+                charCount > 50 -> 15
+                charCount > 30 -> 12
+                charCount > 15 -> 8
+                else -> 5  // 字迹潦草或内容过少
+            }
+        } else 0
+        val contentMaxScore = if (isHandwritten) 80 else 100
+
         // 计算关键词覆盖率
         val punctuationRegex = Regex("[，。、；：\\u201c\\u201d\\u2018\\u2019（）\\[\\]【】\\s\\n\\r.,;:\"'()]+")
-        val correctKeywords = correctAnswer
-            .replace(punctuationRegex, " ")
-            .split(" ")
-            .filter { it.length >= 2 }
-            .distinct()
+        val correctKeywords = correctAnswer.replace(punctuationRegex, " ").split(" ").filter { it.length >= 2 }.distinct()
         val userText = userAns.replace(punctuationRegex, " ")
 
         if (correctKeywords.isEmpty()) {
-            // 答案太短，直接做包含判断
-            val isCorrect = userAns.contains(correctAnswer, ignoreCase = true)
-                || correctAnswer.contains(userAns, ignoreCase = true)
-            aiGradeScore = if (isCorrect) 80 else 30
+            val isCorrect = userAns.contains(correctAnswer, ignoreCase = true) || correctAnswer.contains(userAns, ignoreCase = true)
+            val contentScore = if (isCorrect) 80 else 30
+            aiGradeScore = if (isHandwritten) ((contentScore * contentMaxScore / 100) + neatnessScore).coerceIn(0, 100) else contentScore
             aiGradeResult = if (isCorrect) "答案基本匹配" else "答案与标准答案差异较大"
+            if (isHandwritten) aiGradeResult += "\n📝 卷面分: $neatnessScore/20"
             submitAnswer(question.id, userAnswer, aiGradeScore >= 60)
             return
         }
 
-        val matchedCount = correctKeywords.count { keyword ->
-            userText.contains(keyword, ignoreCase = true)
-        }
+        val matchedCount = correctKeywords.count { keyword -> userText.contains(keyword, ignoreCase = true) }
         val coverageRate = matchedCount.toFloat() / correctKeywords.size
+        val contentScore = (coverageRate * contentMaxScore).toInt().coerceIn(0, contentMaxScore)
+        aiGradeScore = (contentScore + neatnessScore).coerceIn(0, 100)
 
-        aiGradeScore = (coverageRate * 100).toInt().coerceIn(0, 100)
         val matchedKeywords = correctKeywords.filter { userText.contains(it, ignoreCase = true) }
         val missedKeywords = correctKeywords.filter { !userText.contains(it, ignoreCase = true) }
 
         val feedback = StringBuilder()
-        feedback.appendLine("关键词覆盖率: ${matchedCount}/${correctKeywords.size}")
-        if (matchedKeywords.isNotEmpty()) {
-            feedback.appendLine("✅ 命中: ${matchedKeywords.take(10).joinToString("、")}")
-        }
-        if (missedKeywords.isNotEmpty()) {
-            feedback.appendLine("❌ 缺失: ${missedKeywords.take(10).joinToString("、")}")
+        feedback.appendLine("📊 踩分点: ${matchedCount}/${correctKeywords.size}")
+        if (matchedKeywords.isNotEmpty()) feedback.appendLine("✅ 命中: ${matchedKeywords.take(10).joinToString("、")}")
+        if (missedKeywords.isNotEmpty()) feedback.appendLine("❌ 缺失: ${missedKeywords.take(10).joinToString("、")}")
+        if (isHandwritten) {
+            val neatLabel = when { neatnessScore >= 15 -> "字迹清晰" ; neatnessScore >= 10 -> "基本可读" ; else -> "字迹较潦草" }
+            feedback.appendLine("📝 卷面分: $neatnessScore/20（$neatLabel）")
+            feedback.appendLine("🎯 总分 = 内容${contentScore} + 卷面${neatnessScore}")
         }
         aiGradeResult = feedback.toString().trim()
         submitAnswer(question.id, userAnswer, aiGradeScore >= 60)

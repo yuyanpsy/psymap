@@ -27,6 +27,7 @@ fun PracticePage(vm: PsyMapViewModel) {
 
     var showStudySession by remember { mutableStateOf(false) }
     var singleQuestionToAnswer by remember { mutableStateOf<Question?>(null) }
+    var singleQuestionList by remember { mutableStateOf<List<Question>>(emptyList()) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(
@@ -50,9 +51,11 @@ fun PracticePage(vm: PsyMapViewModel) {
             }
             1 -> WrongBookList(vm) { question ->
                 singleQuestionToAnswer = question
+                singleQuestionList = vm.getWrongQuestions()
             }
             2 -> FavoritesList(vm) { question ->
                 singleQuestionToAnswer = question
+                singleQuestionList = vm.getFavoriteQuestions()
             }
         }
     }
@@ -68,7 +71,12 @@ fun PracticePage(vm: PsyMapViewModel) {
 
     // 单题作答 — 使用全屏 QuestionDetailDialog
     singleQuestionToAnswer?.let { q ->
-        QuestionDetailDialog(question = q, vm = vm, onDismiss = { singleQuestionToAnswer = null })
+        QuestionDetailDialog(
+            question = q, vm = vm,
+            onDismiss = { singleQuestionToAnswer = null },
+            questionList = singleQuestionList,
+            onNavigate = { next -> singleQuestionToAnswer = next }
+        )
     }
 }
 

@@ -2466,7 +2466,7 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
                         modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
                         Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("📸 拍照手写答案", fontSize = 13.sp)
+                        Text("拍照手写答案", fontSize = 13.sp)
                     }
                     if (showPhotoPicker) {
                         ExamPhotoCaptureWithSave(
@@ -2778,7 +2778,7 @@ fun gradeHandwrittenAnswer(ocrText: String, correctAnswer: String, imageCount: I
         return Pair(0, "❌ 未能识别手写内容，请确保字迹清晰、光线充足")
     }
 
-    // AI 评分（更准确）
+    // AI 评分（更准确）+ 卷面分
     if (aiEnabled && correctAnswer.isNotBlank()) {
         var aiScore = -1
         var aiFeedback = ""
@@ -2788,12 +2788,20 @@ fun gradeHandwrittenAnswer(ocrText: String, correctAnswer: String, imageCount: I
             correctAnswer = correctAnswer,
             userAnswer = ocrText,
             onResult = { score, feedback ->
-                aiScore = score
-                aiFeedback = "🤖 AI评分: ${score}分\n$feedback"
-                // 追加卷面评价
+                // 内容分占80%，卷面分占20%
                 val charCount = ocrText.replace(Regex("\\s+"), "").length
-                val neatness = if (charCount > 50) "字迹清晰" else if (charCount > 20) "基本可读" else "字迹较潦草"
-                aiFeedback += "\n📝 卷面: $neatness"
+                val lineCount = ocrText.lines().filter { it.isNotBlank() }.size
+                val neatnessScore = when {
+                    charCount > 80 && lineCount > 3 -> 18
+                    charCount > 50 -> 15
+                    charCount > 30 -> 12
+                    charCount > 15 -> 8
+                    else -> 5
+                }
+                val contentScore = (score * 0.8).toInt()
+                aiScore = (contentScore + neatnessScore).coerceIn(0, 100)
+                val neatLabel = when { neatnessScore >= 15 -> "字迹清晰" ; neatnessScore >= 10 -> "基本可读" ; else -> "字迹较潦草" }
+                aiFeedback = "🤖 AI评分: ${aiScore}分\n$feedback\n📝 卷面分: $neatnessScore/20（$neatLabel）\n🎯 总分 = 内容${contentScore} + 卷面${neatnessScore}"
                 latch.countDown()
             },
             onError = { latch.countDown() }
