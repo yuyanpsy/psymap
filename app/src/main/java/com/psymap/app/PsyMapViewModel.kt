@@ -61,10 +61,11 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                             )
                             // 同步文件
                             val app = getApplication<android.app.Application>()
-                            val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
                             val mindmapDir = java.io.File(app.filesDir, "mindmaps")
-                            SupabaseClient.syncAudioFiles(audioDir)
-                            SupabaseClient.syncMindmapFiles(mindmapDir)
+                            val mindmapItems = MindMapStore.getItems(app)
+                            SupabaseClient.syncMindmapFiles(mindmapDir, mindmapItems)
+                            val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
+                            SupabaseClient.syncAudioMetas(audioDir)
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                 lastPushedHash = currentHash
                                 localDataHash = currentHash
@@ -79,7 +80,13 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     // 后台同步：不阻塞 UI，静默推送
     private fun syncToCloud(block: suspend () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try { block() } catch (e: Exception) { /* 静默失败 */ }
+            try {
+                Log.d("PsyMap-Sync", "syncToCloud started")
+                block()
+                Log.d("PsyMap-Sync", "syncToCloud completed")
+            } catch (e: Exception) {
+                Log.e("PsyMap-Sync", "syncToCloud failed: ${e.message}")
+            }
         }
         updateLocalHash()
     }
@@ -321,12 +328,26 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                             questionBanks, questions, checkInRecords, dailyTargets,
                             targetPoliticsScore, targetEnglishScore, targetPsyScore
                         )
-                        // 同步文件（音频 + 思维导图）
+                        // 同步思维导图文件（内容存到 questions 表）
                         val app = getApplication<android.app.Application>()
-                        val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
                         val mindmapDir = java.io.File(app.filesDir, "mindmaps")
-                        SupabaseClient.syncAudioFiles(audioDir)
-                        SupabaseClient.syncMindmapFiles(mindmapDir)
+                        val mindmapItems = MindMapStore.getItems(app)
+                        SupabaseClient.syncMindmapFiles(mindmapDir, mindmapItems)
+                        // 下载云端有但本地没有的思维导图
+                        val localIds = mindmapItems.map { it.id }.toSet()
+                        val newMaps = SupabaseClient.getNewMindmapsFromCloud(localIds)
+                        for ((localFileName, item, content) in newMaps) {
+                            val file = java.io.File(mindmapDir, localFileName)
+                            if (!file.exists()) {
+                                file.parentFile?.mkdirs()
+                                file.writeText(content)
+                                MindMapStore.addItem(app, item)
+                                Log.d("Supabase-Sync", "Downloaded mindmap: ${item.name}")
+                            }
+                        }
+                        // 同步音频元数据
+                        val audioDir = java.io.File(app.getExternalFilesDir(null), "audio")
+                        SupabaseClient.syncAudioMetas(audioDir)
                     }
                 }
             } catch (e: Exception) {
