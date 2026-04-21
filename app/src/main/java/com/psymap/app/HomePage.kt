@@ -2519,6 +2519,14 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
                     }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) { Text("提交本题") }
                 }
 
+                // 答对后1秒自动进入下一题
+                if (isSubmitted && question.id in correctSet) {
+                    LaunchedEffect(question.id) {
+                        kotlinx.coroutines.delay(1000)
+                        if (currentIndex < questions.size - 1) currentIndex++ else showResult = true
+                    }
+                }
+
                 // 已提交显示结果
                 if (isSubmitted) {
                     Spacer(Modifier.height(12.dp))
