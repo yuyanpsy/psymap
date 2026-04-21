@@ -96,17 +96,19 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         )
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "失败不是终点，而是提升能力、靠近目标的必经过程。天赋只是起点，持续坚定的努力，才是获得成功与回报的根本原因。",
+                    fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f), lineHeight = 16.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                )
+                Text(
+                    "—— 卡罗尔·德韦克（Carol S. Dweck）",
+                    fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-        }
-
-        // 名言
-        item {
-            Text(
-                "「持续坚定的努力，才是获得成功与回报的根本原因。」\n—— 卡罗尔·德韦克（Carol S. Dweck）",
-                fontSize = 12.sp, color = Color(0xFF888888), lineHeight = 18.sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)
-            )
         }
 
         // 目标分数展示
