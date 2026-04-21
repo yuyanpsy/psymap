@@ -428,14 +428,23 @@ fun ScoreSettingDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         androidx.compose.foundation.text.BasicTextField(
                             value = name,
                             onValueChange = { items[index] = it to score },
-                            modifier = Modifier.width(80.dp)
+                            modifier = Modifier.weight(1f).height(40.dp)
                                 .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = Color(0xFF333333)),
                             singleLine = true
                         )
                         Spacer(Modifier.width(8.dp))
-                        NumberStepper(value = score, onValueChange = { items[index] = name to it }, min = 0, max = 300)
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = score,
+                            onValueChange = { newVal -> items[index] = name to newVal.filter { c -> c.isDigit() }.take(3) },
+                            modifier = Modifier.width(60.dp).height(40.dp)
+                                .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = Color(0xFF333333), textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                        )
                         Spacer(Modifier.width(4.dp))
                         Text("分", fontSize = 13.sp, color = Color.Gray)
                         if (items.size > 1) {
