@@ -635,25 +635,7 @@ fun CloudSyncDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     ) { Text(if (vm.cloudSyncing) "同步中..." else "从云端拉取最新数据") }
 
                     Spacer(Modifier.height(8.dp))
-
-                    // 推送按钮（本地有变化时才可点击）
-                    Button(
-                        onClick = {
-                            vm.pushToCloud { result ->
-                                android.widget.Toast.makeText(context, result, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (vm.hasLocalChanges) Color(0xFFEF6C00) else Color(0xFFBDBDBD)
-                        ),
-                        enabled = !vm.cloudSyncing && vm.hasLocalChanges
-                    ) { Text("推送本地数据到云端") }
-
-                    if (!vm.hasLocalChanges) {
-                        Text("本地数据已是最新", fontSize = 11.sp, color = Color.Gray,
-                            modifier = Modifier.padding(top = 4.dp))
-                    }
+                    Text("数据每30秒自动同步", fontSize = 11.sp, color = Color.Gray)
                 } else {
                     Text("未连接云端", color = Color.Gray)
                     Spacer(Modifier.height(8.dp))
