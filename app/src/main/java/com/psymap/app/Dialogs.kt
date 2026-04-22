@@ -245,10 +245,7 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
         }
     }
 
-    Dialog(
-        onDismissRequest = { if (!importing) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = { if (!importing) onDismiss() }) {
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
@@ -369,14 +366,13 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var viewingQuestion by remember { mutableStateOf<Question?>(null) }
 
-    Dialog(
+    FullScreenDialog(
         onDismissRequest = {
             if (isSelectMode) {
                 isSelectMode = false
                 selectedIds = emptySet()
             } else onDismiss()
-        },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        }
     ) {
         Card(
             modifier = Modifier
@@ -656,10 +652,7 @@ fun QuestionDetailDialog(
     // 从 vm 实时获取最新的 question 状态
     val liveQuestion = vm.questions.find { it.id == question.id } ?: question
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -864,10 +857,7 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
     var isFrequent by remember { mutableStateOf(false) }
     var isMemorize by remember { mutableStateOf(false) }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(

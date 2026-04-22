@@ -20,10 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.File
@@ -337,10 +339,7 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
 
     // Go 学习会话
     if (showGoStudySession) {
-        Dialog(
-            onDismissRequest = { showGoStudySession = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+        FullScreenDialog(onDismissRequest = { showGoStudySession = false }) {
             StudySessionPage(vm = vm, onFinish = { showGoStudySession = false })
         }
     }

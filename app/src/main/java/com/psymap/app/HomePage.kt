@@ -203,10 +203,7 @@ fun HomePage(vm: PsyMapViewModel) {
         StudyPlanDialog(vm = vm, onDismiss = { showStudyPlan = false })
     }
     if (showMindMap) {
-        Dialog(
-            onDismissRequest = { showMindMap = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+        FullScreenDialog(onDismissRequest = { showMindMap = false }) {
             MindMapPage(onBack = { showMindMap = false })
         }
     }
@@ -439,10 +436,7 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var displayYear by remember { mutableStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
     val todayCal = Calendar.getInstance()
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -684,19 +678,13 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var showStudySession by remember { mutableStateOf(false) }
 
     if (showStudySession) {
-        Dialog(
-            onDismissRequest = { showStudySession = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+        FullScreenDialog(onDismissRequest = { showStudySession = false }) {
             StudySessionPage(vm = vm, onFinish = { showStudySession = false })
         }
         return
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -794,19 +782,13 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var showStudySession by remember { mutableStateOf(false) }
 
     if (showStudySession) {
-        Dialog(
-            onDismissRequest = { showStudySession = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+        FullScreenDialog(onDismissRequest = { showStudySession = false }) {
             StudySessionPage(vm = vm, onFinish = { showStudySession = false })
         }
         return
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -1001,10 +983,7 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
         }
     }
 
-    Dialog(
-        onDismissRequest = { if (!isLoading) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = { if (!isLoading) onDismiss() }) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -1134,10 +1113,7 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     val totalDone = vm.questionBanks.sumOf { vm.todayCheckIn.bankProgress[it.id] ?: 0 }
     val overallProgress = if (totalTarget > 0) (totalDone.toFloat() / totalTarget).coerceAtMost(1f) else 0f
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -1407,10 +1383,7 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    Dialog(
-        onDismissRequest = { if (!isGenerating) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = { if (!isGenerating) onDismiss() }) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -1758,9 +1731,8 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         }
     }
 
-    Dialog(
-        onDismissRequest = { onDismiss() },  // 不停止播放，允许后台继续
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    FullScreenDialog(
+        onDismissRequest = { onDismiss() }  // 不停止播放，允许后台继续
     ) {
         Scaffold(
             topBar = {
@@ -2044,10 +2016,7 @@ fun AiPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var parsedTargets by remember { mutableStateOf(mapOf<String, Int>()) }
     val context = LocalContext.current
 
-    Dialog(
-        onDismissRequest = { if (!isLoading) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    FullScreenDialog(onDismissRequest = { if (!isLoading) onDismiss() }) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -2272,7 +2241,7 @@ fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         return
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
                 TopAppBar(title = { Text("考一考", fontWeight = FontWeight.Bold) },
@@ -2403,7 +2372,7 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
     val isMulti = question.type == QuestionType.MULTI_CHOICE
     val isSubmitted = question.id in submitted
 
-    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false)) {
+    FullScreenDialog(onDismissRequest = {}, dismissOnBackPress = false) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -2619,7 +2588,7 @@ fun ExamResultPage(questions: List<Question>, correctSet: Set<String>, answeredI
     val usedMm = usedSeconds / 60
     val usedSs = usedSeconds % 60
 
-    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false)) {
+    FullScreenDialog(onDismissRequest = {}, dismissOnBackPress = false) {
         Scaffold(
             topBar = { TopAppBar(title = { Text("考试结果", fontWeight = FontWeight.Bold) }) }
         ) { padding ->
