@@ -59,7 +59,6 @@ fun HomePage(vm: PsyMapViewModel) {
     var selectedBankId by remember { mutableStateOf("") }
     var showWrongBookDialog by remember { mutableStateOf(false) }
     var showFavoritesDialog by remember { mutableStateOf(false) }
-    var showStats by remember { mutableStateOf(false) }
     var showCalendar by remember { mutableStateOf(false) }
     var showCreateBank by remember { mutableStateOf(false) }
     var showMakeAudio by remember { mutableStateOf(false) }
@@ -180,9 +179,6 @@ fun HomePage(vm: PsyMapViewModel) {
     }
     if (showCreateBank) {
         CreateBankDialog(vm = vm, onDismiss = { showCreateBank = false })
-    }
-    if (showStats) {
-        // removed
     }
     if (showCalendar) {
         CheckInCalendarDialog(vm = vm, onDismiss = { showCalendar = false })
