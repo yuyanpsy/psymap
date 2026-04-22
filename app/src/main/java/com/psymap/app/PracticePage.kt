@@ -2,6 +2,9 @@ package com.psymap.app
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +33,23 @@ fun PracticePage(vm: PsyMapViewModel) {
     var singleQuestionToAnswer by remember { mutableStateOf<Question?>(null) }
     var singleQuestionList by remember { mutableStateOf<List<Question>>(emptyList()) }
 
+    // 学习会话：直接替换整个页面内容，不用 Dialog
+    if (showStudySession) {
+        StudySessionPage(vm = vm, onFinish = { showStudySession = false })
+        return
+    }
+
+    // 题目详情：直接替换整个页面内容，不用 Dialog
+    singleQuestionToAnswer?.let { q ->
+        QuestionDetailInline(
+            question = q, vm = vm,
+            questionList = singleQuestionList,
+            onBack = { singleQuestionToAnswer = null },
+            onNavigate = { next -> singleQuestionToAnswer = next }
+        )
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(
             selectedTabIndex = selectedTab,
@@ -47,39 +67,20 @@ fun PracticePage(vm: PsyMapViewModel) {
 
         Box(modifier = Modifier.fillMaxSize()) {
             when (selectedTab) {
-                0 -> key("bank_list") { BankPracticeList(vm) { bankId, shuffle ->
+                0 -> BankPracticeList(vm) { bankId, shuffle ->
                     vm.startStudySession(bankId, shuffle)
                     showStudySession = true
-                } }
-                1 -> key("wrong_list") { WrongBookList(vm) { question ->
+                }
+                1 -> WrongBookList(vm) { question ->
                     singleQuestionToAnswer = question
                     singleQuestionList = vm.getWrongQuestions()
-                } }
-                2 -> key("fav_list") { FavoritesList(vm) { question ->
+                }
+                2 -> FavoritesList(vm) { question ->
                     singleQuestionToAnswer = question
                     singleQuestionList = vm.getFavoriteQuestions()
-                } }
+                }
             }
         }
-    }
-
-    if (showStudySession) {
-        Dialog(
-            onDismissRequest = { showStudySession = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            StudySessionPage(vm = vm, onFinish = { showStudySession = false })
-        }
-    }
-
-    // 单题作答 — 使用全屏 QuestionDetailDialog
-    singleQuestionToAnswer?.let { q ->
-        QuestionDetailDialog(
-            question = q, vm = vm,
-            onDismiss = { singleQuestionToAnswer = null },
-            questionList = singleQuestionList,
-            onNavigate = { next -> singleQuestionToAnswer = next }
-        )
     }
 }
 
@@ -218,3 +219,120 @@ private fun QuestionListItem(question: Question, vm: PsyMapViewModel, onClick: (
     }
 }
 
+
+
+// ==================== 内联题目详情（不用 Dialog，直接替换页面内容） ====================
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun QuestionDetailInline(
+    question: Question, vm: PsyMapViewModel,
+    questionList: List<Question> = emptyList(),
+    onBack: () -> Unit,
+    onNavigate: ((Question) -> Unit)? = null
+) {
+    val liveQuestion = vm.questions.find { it.id == question.id } ?: question
+    val currentIndex = if (questionList.isNotEmpty()) questionList.indexOfFirst { it.id == question.id } else -1
+    val bank = vm.questionBanks.find { it.id == question.bankId }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        if (questionList.size > 1) "题目详情 ${currentIndex + 1}/${questionList.size}" else "题目详情",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            // 题型 + 标签
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                AssistChip(onClick = {}, label = { Text(liveQuestion.type.label, fontSize = 11.sp) })
+                if (liveQuestion.isFrequent) AssistChip(onClick = {}, label = { Text("🔥常考", fontSize = 11.sp) })
+                if (liveQuestion.isMemorize) AssistChip(onClick = {}, label = { Text("📖多背", fontSize = 11.sp) })
+                if (liveQuestion.isInFavorites) AssistChip(onClick = {}, label = { Text("⭐收藏", fontSize = 11.sp) })
+                if (liveQuestion.isInWrongBook) AssistChip(onClick = {}, label = { Text("📌错题", fontSize = 11.sp) })
+            }
+            if (bank != null) {
+                Spacer(Modifier.height(4.dp))
+                Text("所属: ${bank.subject.emoji} ${bank.name}", fontSize = 11.sp, color = Color.Gray)
+            }
+            Spacer(Modifier.height(12.dp))
+
+            // 题目
+            Text("题目", fontSize = 12.sp, color = Color.Gray)
+            Spacer(Modifier.height(4.dp))
+            SimpleMarkdownText(liveQuestion.content)
+            Spacer(Modifier.height(12.dp))
+
+            // 选项
+            if (liveQuestion.options.isNotEmpty()) {
+                Text("选项", fontSize = 12.sp, color = Color.Gray)
+                liveQuestion.options.forEachIndexed { i, opt ->
+                    Text("${('A' + i)}. $opt", fontSize = 14.sp, modifier = Modifier.padding(vertical = 2.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // 答案
+            Text("答案", fontSize = 12.sp, color = Color.Gray)
+            Spacer(Modifier.height(4.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    if (liveQuestion.answer.isNotBlank()) SimpleMarkdownText(liveQuestion.answer)
+                    else Text("暂无答案", color = Color.Gray, fontSize = 13.sp)
+                }
+            }
+
+            // 解析
+            if (liveQuestion.explanation.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF7B1FA2))
+                        Spacer(Modifier.height(4.dp))
+                        SimpleMarkdownText(liveQuestion.explanation)
+                    }
+                }
+            }
+
+            // 统计
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("复习 ${liveQuestion.reviewCount} 次", fontSize = 11.sp, color = Color.Gray)
+                Text("正确 ${liveQuestion.correctCount}", fontSize = 11.sp, color = Color(0xFF4CAF50))
+                Text("错误 ${liveQuestion.wrongCount}", fontSize = 11.sp, color = Color(0xFFD32F2F))
+            }
+
+            // 导航按钮
+            if (questionList.size > 1 && onNavigate != null) {
+                Spacer(Modifier.height(16.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = { if (currentIndex > 0) onNavigate(questionList[currentIndex - 1]) },
+                        enabled = currentIndex > 0, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)
+                    ) { Text("← 上一题") }
+                    Text("${currentIndex + 1}/${questionList.size}", fontSize = 13.sp, color = Color.Gray)
+                    Button(
+                        onClick = { if (currentIndex < questionList.size - 1) onNavigate(questionList[currentIndex + 1]) },
+                        enabled = currentIndex < questionList.size - 1, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)
+                    ) { Text("下一题 →") }
+                }
+            }
+            Spacer(Modifier.height(32.dp))
+        }
+    }
+}
