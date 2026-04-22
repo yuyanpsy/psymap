@@ -60,43 +60,6 @@ fun PracticePage(vm: PsyMapViewModel) {
                     singleQuestionList = vm.getFavoriteQuestions()
                 }
             }
-
-            // 浮动 Go 按钮（仅在题库学习 tab 显示）
-            if (selectedTab == 0) {
-                val totalTarget = vm.questionBanks.sumOf { vm.dailyTargets[it.id] ?: 0 }
-                if (totalTarget > 0) {
-                    androidx.compose.material3.FloatingActionButton(
-                        onClick = {
-                            // 从所有有目标的题库中按记忆曲线选题
-                            val allCandidates = mutableListOf<Question>()
-                            vm.questionBanks.forEach { bank ->
-                                val target = vm.dailyTargets[bank.id] ?: 0
-                                if (target > 0) {
-                                    val bankQuestions = vm.getQuestionsForBank(bank.id)
-                                    val selected = vm.selectBySpacedRepetition(bankQuestions, target)
-                                    allCandidates.addAll(selected)
-                                }
-                            }
-                            if (allCandidates.isNotEmpty()) {
-                                vm.startStudySessionWithQuestions(allCandidates.map { it.id })
-                                showStudySession = true
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 24.dp, bottom = 24.dp)
-                            .size(64.dp),
-                        containerColor = Color(0xFFFF8A00),
-                        contentColor = Color.White,
-                        shape = androidx.compose.foundation.shape.CircleShape
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Go", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("${totalTarget}题", fontSize = 9.sp, color = Color.White.copy(alpha = 0.8f))
-                        }
-                    }
-                }
-            }
         }
     }
 

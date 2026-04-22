@@ -49,6 +49,7 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
     var showImportDialog by remember { mutableStateOf(false) }
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var showImageSourceDialog by remember { mutableStateOf(false) }
+    var showGoStudySession by remember { mutableStateOf(false) }
 
     // 全分辨率拍照
     val photoFile = remember {
@@ -200,6 +201,41 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
                 AppTab.PROFILE -> ProfilePage(vm = vm)
             }
 
+            // 全局 Go 浮动球
+            val totalTarget = vm.questionBanks.sumOf { vm.dailyTargets[it.id] ?: 0 }
+            if (totalTarget > 0) {
+                FloatingActionButton(
+                    onClick = {
+                        val allCandidates = mutableListOf<Question>()
+                        vm.questionBanks.forEach { bank ->
+                            val target = vm.dailyTargets[bank.id] ?: 0
+                            if (target > 0) {
+                                val bankQuestions = vm.getQuestionsForBank(bank.id)
+                                val selected = vm.selectBySpacedRepetition(bankQuestions, target)
+                                allCandidates.addAll(selected)
+                            }
+                        }
+                        if (allCandidates.isNotEmpty()) {
+                            vm.startStudySessionWithQuestions(allCandidates.map { it.id })
+                            showGoStudySession = true
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 20.dp, bottom = 16.dp)
+                        .size(56.dp)
+                        .shadow(8.dp, shape = CircleShape),
+                    containerColor = Color(0xFFFF8A00),
+                    contentColor = Color.White,
+                    shape = CircleShape
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Go", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("${totalTarget}题", fontSize = 8.sp, color = Color.White.copy(alpha = 0.8f))
+                    }
+                }
+            }
+
             // 全局 Loading
             if (isLoading) {
                 Box(
@@ -300,13 +336,24 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
             }
         )
     }
+
+    // Go 学习会话
+    if (showGoStudySession) {
+        Dialog(
+            onDismissRequest = { showGoStudySession = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            StudySessionPage(vm = vm, onFinish = { showGoStudySession = false })
+        }
+    }
 }
 
 @Composable
 fun BottomNavBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
     NavigationBar(
         containerColor = Color.White,
-        tonalElevation = 8.dp
+        tonalElevation = 0.dp,
+        modifier = Modifier.shadow(12.dp)
     ) {
         // 首页
         NavigationBarItem(
