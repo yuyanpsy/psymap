@@ -134,7 +134,7 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                             Text("乱序学习", fontSize = 13.sp, color = Color(0xFFFF8A00), fontWeight = FontWeight.Medium,
                                 modifier = Modifier.clickable { onStartStudy(bank.id, true) })
                             Text("|", fontSize = 13.sp, color = Color(0xFFE0E0E0))
-                            Text("顺序学习", fontSize = 13.sp, color = Color(0xFF888888),
+                            Text("顺序学习", fontSize = 13.sp, color = Color(0xFF1976D2),
                                 modifier = Modifier.clickable { onStartStudy(bank.id, false) })
                         }
                     } else {
