@@ -1,12 +1,12 @@
 package com.psymap.app
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,61 +24,72 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+// 页面状态
+private sealed class PracticeScreen {
+    object Main : PracticeScreen()
+    object StudySession : PracticeScreen()
+    data class QuestionDetail(val question: Question, val questionList: kotlin.collections.List<Question>) : PracticeScreen()
+}
+
 @Composable
 fun PracticePage(vm: PsyMapViewModel) {
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("题库学习", "错题本", "收藏本")
+    var screen by remember { mutableStateOf<PracticeScreen>(PracticeScreen.Main) }
 
-    var showStudySession by remember { mutableStateOf(false) }
-    var singleQuestionToAnswer by remember { mutableStateOf<Question?>(null) }
-    var singleQuestionList by remember { mutableStateOf<List<Question>>(emptyList()) }
-
-    // 学习会话：直接替换整个页面内容，不用 Dialog
-    if (showStudySession) {
-        StudySessionPage(vm = vm, onFinish = { showStudySession = false })
-        return
-    }
-
-    // 题目详情：直接替换整个页面内容，不用 Dialog
-    singleQuestionToAnswer?.let { q ->
-        QuestionDetailInline(
-            question = q, vm = vm,
-            questionList = singleQuestionList,
-            onBack = { singleQuestionToAnswer = null },
-            onNavigate = { next -> singleQuestionToAnswer = next }
-        )
-        return
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = Color.White,
-            contentColor = MaterialTheme.colorScheme.primary
-        ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = { Text(title, fontSize = 14.sp) }
-                )
+    AnimatedContent(
+        targetState = screen,
+        transitionSpec = {
+            if (targetState is PracticeScreen.Main) {
+                // 返回列表：从左滑入
+                slideInHorizontally { -it / 3 } + fadeIn() togetherWith slideOutHorizontally { it / 3 } + fadeOut()
+            } else {
+                // 进入详情：从右滑入
+                slideInHorizontally { it / 3 } + fadeIn() togetherWith slideOutHorizontally { -it / 3 } + fadeOut()
             }
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            when (selectedTab) {
-                0 -> BankPracticeList(vm) { bankId, shuffle ->
-                    vm.startStudySession(bankId, shuffle)
-                    showStudySession = true
+        },
+        label = "practice_nav"
+    ) { currentScreen ->
+        when (currentScreen) {
+            is PracticeScreen.Main -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = Color.White,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        tabs.forEachIndexed { index, title ->
+                            Tab(selected = selectedTab == index, onClick = { selectedTab = index },
+                                text = { Text(title, fontSize = 14.sp) })
+                        }
+                    }
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        when (selectedTab) {
+                            0 -> BankPracticeList(vm) { bankId, shuffle ->
+                                vm.startStudySession(bankId, shuffle)
+                                screen = PracticeScreen.StudySession
+                            }
+                            1 -> WrongBookList(vm) { question ->
+                                screen = PracticeScreen.QuestionDetail(question, vm.getWrongQuestions())
+                            }
+                            2 -> FavoritesList(vm) { question ->
+                                screen = PracticeScreen.QuestionDetail(question, vm.getFavoriteQuestions())
+                            }
+                        }
+                    }
                 }
-                1 -> WrongBookList(vm) { question ->
-                    singleQuestionToAnswer = question
-                    singleQuestionList = vm.getWrongQuestions()
-                }
-                2 -> FavoritesList(vm) { question ->
-                    singleQuestionToAnswer = question
-                    singleQuestionList = vm.getFavoriteQuestions()
-                }
+            }
+            is PracticeScreen.StudySession -> {
+                StudySessionPage(vm = vm, onFinish = { screen = PracticeScreen.Main })
+            }
+            is PracticeScreen.QuestionDetail -> {
+                var currentQuestion by remember(currentScreen) { mutableStateOf(currentScreen.question) }
+                QuestionDetailInline(
+                    question = currentQuestion, vm = vm,
+                    questionList = currentScreen.questionList,
+                    onBack = { screen = PracticeScreen.Main },
+                    onNavigate = { next -> currentQuestion = next }
+                )
             }
         }
     }
