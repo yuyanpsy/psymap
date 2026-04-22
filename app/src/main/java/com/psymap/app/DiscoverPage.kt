@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -69,17 +70,21 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // 全部题型按钮
+                    // 全部题型
                     FilterChip(
                         selected = selectedTypes.isEmpty(),
                         onClick = { selectedTypes = emptySet() },
                         label = { Text("全部题型", fontSize = 12.sp) },
+                        shape = RoundedCornerShape(20.dp),
+                        border = null,
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF1976D2),
-                            selectedLabelColor = Color.White
+                            selectedContainerColor = Color(0xFFFF8A00),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.White,
+                            labelColor = Color(0xFF666666)
                         )
                     )
                     availableTypes.forEach { type ->
@@ -91,23 +96,17 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                                     selectedTypes = if (type in selectedTypes) selectedTypes - type else selectedTypes + type
                                 }
                             },
-                            label = {
-                                Text(
-                                    "${type.label}${if (hasQuestions) "" else ""}",
-                                    fontSize = 12.sp,
-                                    color = when {
-                                        type in selectedTypes -> Color.White
-                                        !hasQuestions -> Color(0xFFBDBDBD)
-                                        else -> Color(0xFF333333)
-                                    }
-                                )
-                            },
+                            label = { Text(type.label, fontSize = 12.sp) },
                             enabled = hasQuestions,
+                            shape = RoundedCornerShape(20.dp),
+                            border = null,
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF1976D2),
+                                selectedContainerColor = Color(0xFFFF8A00),
                                 selectedLabelColor = Color.White,
-                                disabledContainerColor = Color(0xFFF0F0F0),
-                                disabledLabelColor = Color(0xFFBDBDBD)
+                                containerColor = Color.White,
+                                labelColor = Color(0xFF666666),
+                                disabledContainerColor = Color(0xFFF5F5F5),
+                                disabledLabelColor = Color(0xFFCCCCCC)
                             )
                         )
                     }

@@ -264,8 +264,8 @@ fun QuickActions(
     val actions = listOf(
         Triple(Icons.Default.Schedule, "学习计划", onStudyPlan),
         Triple(Icons.Default.CalendarMonth, "打卡日历", onCalendar),
-        Triple(Icons.Default.ErrorOutline, "复习错题", onWrongBook),
-        Triple(Icons.Default.Star, "收藏题目", onFavorites),
+        Triple(Icons.Default.ErrorOutline, "错题本", onWrongBook),
+        Triple(Icons.Default.Star, "收藏本", onFavorites),
         Triple(Icons.Default.AccountTree, "思维导图", onMindMap),
         Triple(Icons.Default.RecordVoiceOver, "制作音频", onMakeAudio),
         Triple(Icons.Default.Headphones, "磨耳朵", onListen),
@@ -277,7 +277,7 @@ fun QuickActions(
                 for ((icon, label, onClick) in row) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable(onClick = onClick).padding(vertical = 10.dp).width(72.dp)) {
-                        Box(modifier = Modifier.size(46.dp).background(Color(0xFFFFF3E0), CircleShape),
+                        Box(modifier = Modifier.size(46.dp).background(Color(0xFFFFE0B2), CircleShape),
                             contentAlignment = Alignment.Center) {
                             Icon(icon, contentDescription = label, tint = Color(0xFFFF8A00), modifier = Modifier.size(24.dp))
                         }
@@ -700,7 +700,7 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("复习错题", fontWeight = FontWeight.Bold) },
+                    title = { Text("错题本", fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
@@ -810,7 +810,7 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("收藏题目", fontWeight = FontWeight.Bold) },
+                    title = { Text("收藏本", fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
@@ -853,7 +853,7 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("⭐", fontSize = 48.sp)
                             Spacer(Modifier.height(12.dp))
-                            Text("暂无收藏题目", color = Color(0xFF999999), fontSize = 15.sp)
+                            Text("暂无收藏", color = Color(0xFF999999), fontSize = 15.sp)
                         }
                     }
                 } else {

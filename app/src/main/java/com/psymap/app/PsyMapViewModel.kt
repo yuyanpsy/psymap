@@ -1067,9 +1067,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ========== 错题本 & 收藏本 ==========
-    fun getWrongQuestions(): List<Question> = questions.filter { it.isInWrongBook }
+    fun getWrongQuestions(): List<Question> = questions.filter { it.isInWrongBook }.sortedByDescending { it.createdAt }
 
-    fun getFavoriteQuestions(): List<Question> = questions.filter { it.isInFavorites }
+    fun getFavoriteQuestions(): List<Question> = questions.filter { it.isInFavorites }.sortedByDescending { it.createdAt }
 
     fun toggleFavorite(questionId: String) {
         questions = questions.map {
