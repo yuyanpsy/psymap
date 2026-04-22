@@ -47,18 +47,18 @@ fun PracticePage(vm: PsyMapViewModel) {
 
         Box(modifier = Modifier.fillMaxSize()) {
             when (selectedTab) {
-                0 -> BankPracticeList(vm) { bankId, shuffle ->
+                0 -> key("bank_list") { BankPracticeList(vm) { bankId, shuffle ->
                     vm.startStudySession(bankId, shuffle)
                     showStudySession = true
-                }
-                1 -> WrongBookList(vm) { question ->
+                } }
+                1 -> key("wrong_list") { WrongBookList(vm) { question ->
                     singleQuestionToAnswer = question
                     singleQuestionList = vm.getWrongQuestions()
-                }
-                2 -> FavoritesList(vm) { question ->
+                } }
+                2 -> key("fav_list") { FavoritesList(vm) { question ->
                     singleQuestionToAnswer = question
                     singleQuestionList = vm.getFavoriteQuestions()
-                }
+                } }
             }
         }
     }
