@@ -1326,12 +1326,16 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 Text("设定每个题库每天要复习的题目数量\n保存后将自动创建日历提醒（每天16:00）", fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(12.dp))
                 vm.questionBanks.forEach { bank ->
+                    val bankQuestionCount = vm.getQuestionsForBank(bank.id).size
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp, modifier = Modifier.weight(1f))
                         NumberStepper(
                             value = targets[bank.id] ?: "10",
-                            onValueChange = { targets[bank.id] = it },
-                            min = 0, max = 100, suffix = ""
+                            onValueChange = { newVal ->
+                                val num = newVal.toIntOrNull() ?: 0
+                                targets[bank.id] = num.coerceAtMost(bankQuestionCount).toString()
+                            },
+                            min = 0, max = bankQuestionCount, suffix = ""
                         )
                     }
                 }
@@ -1339,7 +1343,10 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         },
         confirmButton = {
             Button(onClick = {
-                val map = targets.mapValues { (it.value.toIntOrNull() ?: 10) }
+                val map = targets.mapValues { entry ->
+                    val bankCount = vm.getQuestionsForBank(entry.key).size
+                    (entry.value.toIntOrNull() ?: 10).coerceIn(0, bankCount)
+                }
                 vm.saveDailyTargets(map)
                 val activeBanks = vm.questionBanks.filter { (map[it.id] ?: 0) > 0 }
                 if (activeBanks.isNotEmpty()) {
