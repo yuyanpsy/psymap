@@ -1,6 +1,7 @@
 package com.psymap.app
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -37,17 +38,9 @@ fun PracticePage(vm: PsyMapViewModel) {
     val tabs = listOf("题库学习", "错题本", "收藏本")
     var screen by remember { mutableStateOf<PracticeScreen>(PracticeScreen.Main) }
 
-    AnimatedContent(
+    Crossfade(
         targetState = screen,
-        transitionSpec = {
-            if (targetState is PracticeScreen.Main) {
-                // 返回列表：从左滑入
-                slideInHorizontally { -it / 3 } + fadeIn() togetherWith slideOutHorizontally { it / 3 } + fadeOut()
-            } else {
-                // 进入详情：从右滑入
-                slideInHorizontally { it / 3 } + fadeIn() togetherWith slideOutHorizontally { -it / 3 } + fadeOut()
-            }
-        },
+        animationSpec = tween(200),
         label = "practice_nav"
     ) { currentScreen ->
         when (currentScreen) {
