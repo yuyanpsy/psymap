@@ -129,14 +129,13 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                                 fontSize = 12.sp, color = Color.Gray,
                                 modifier = Modifier.width(46.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, maxLines = 1)
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { onStartStudy(bank.id, false) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                                Text("顺序学习", fontSize = 13.sp)
-                            }
-                            OutlinedButton(onClick = { onStartStudy(bank.id, true) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                                Text("乱序学习", fontSize = 13.sp)
-                            }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("点击开始学习", fontSize = 12.sp, color = Color(0xFFFF8A00),
+                                modifier = Modifier.clickable { onStartStudy(bank.id, true) })
+                            Text("·", fontSize = 12.sp, color = Color.Gray)
+                            Text("顺序", fontSize = 12.sp, color = Color.Gray,
+                                modifier = Modifier.clickable { onStartStudy(bank.id, false) })
                         }
                     } else {
                         Spacer(Modifier.height(8.dp))

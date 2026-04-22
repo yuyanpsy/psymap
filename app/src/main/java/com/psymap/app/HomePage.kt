@@ -1515,11 +1515,10 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             }
                         }
 
-                        // 显示可用题目数
+                        // 显示可用题目数（检查磨耳朵目录中是否已有同名音频）
                         Spacer(Modifier.height(8.dp))
-                        val availableCount = vm.getQuestionsForBank(selectedBankId).count { it.type in ttsQuestionTypes && !it.ttsGenerated }
                         val totalSubjective = vm.getQuestionsForBank(selectedBankId).count { it.type in ttsQuestionTypes }
-                        Text("主观题: ${totalSubjective}题，待制作: ${availableCount}题",
+                        Text("主观题: ${totalSubjective}题",
                             fontSize = 11.sp, color = Color(0xFF999999))
                     }
                 }
@@ -1555,8 +1554,8 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     val voiceOpt = selectedVoice
                     val cnt = (questionCount.toIntOrNull() ?: 10)
 
-                    // 只选主观题，跳过已生成的
-                    val pendingQuestions = bankQuestions.filter { it.type in ttsQuestionTypes && !it.ttsGenerated }
+                    // 只选主观题（不再检查 ttsGenerated 标记）
+                    val pendingQuestions = bankQuestions.filter { it.type in ttsQuestionTypes }
                     val selected = if (shuffle) {
                         pendingQuestions.shuffled().take(cnt)
                     } else {
@@ -1603,7 +1602,6 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                 metaFile.writeText(com.google.gson.Gson().toJson(meta))
 
                                 withContext(Dispatchers.Main) {
-                                    vm.markTtsGenerated(questionIds)
                                     isGenerating = false; progress = ""
                                     Toast.makeText(context, "音频已保存: $fileName\n可在「磨耳朵」中播放", Toast.LENGTH_LONG).show()
                                     onDismiss()
@@ -2004,7 +2002,7 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 Button(
                     onClick = {
                         selectedFiles.forEach { name ->
-                            // 读取元数据恢复 ttsGenerated 标记
+                            // 删除音频文件
                             val metaFile = java.io.File(audioDir, "$name.meta")
                             if (metaFile.exists()) {
                                 try {
@@ -2015,10 +2013,7 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                     @Suppress("UNCHECKED_CAST")
                                     val ids = (meta["questionIds"] as? List<String>) ?: emptyList()
                                     if (ids.isNotEmpty()) {
-                                        vm.questions = vm.questions.map {
-                                            if (it.id in ids) it.copy(ttsGenerated = false) else it
-                                        }
-                                        vm.saveQuestionsPublic()
+                                        // 元数据已清理
                                     }
                                     metaFile.delete()
                                 } catch (_: Exception) {}

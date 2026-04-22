@@ -359,20 +359,20 @@ fun BottomNavBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
         NavigationBarItem(
             selected = currentTab == AppTab.HOME,
             onClick = { onTabSelected(AppTab.HOME) },
-            icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
-            label = { Text("首页", fontSize = 11.sp) },
+            icon = { Icon(Icons.Default.Home, contentDescription = "首页", modifier = Modifier.shadow(if (currentTab == AppTab.HOME) 4.dp else 0.dp, CircleShape)) },
+            label = { Text("首页", fontSize = 11.sp, fontWeight = if (currentTab == AppTab.HOME) FontWeight.Bold else FontWeight.Normal) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
                 indicatorColor = Color.Transparent
             )
         )
-        // 发现
+        // 题库
         NavigationBarItem(
             selected = currentTab == AppTab.DISCOVER,
             onClick = { onTabSelected(AppTab.DISCOVER) },
-            icon = { Icon(Icons.Default.Explore, contentDescription = "题库") },
-            label = { Text("题库", fontSize = 11.sp) },
+            icon = { Icon(Icons.Default.Explore, contentDescription = "题库", modifier = Modifier.shadow(if (currentTab == AppTab.DISCOVER) 4.dp else 0.dp, CircleShape)) },
+            label = { Text("题库", fontSize = 11.sp, fontWeight = if (currentTab == AppTab.DISCOVER) FontWeight.Bold else FontWeight.Normal) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -402,12 +402,12 @@ fun BottomNavBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
             label = { },
             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent)
         )
-        // 练习
+        // 学习
         NavigationBarItem(
             selected = currentTab == AppTab.PRACTICE,
             onClick = { onTabSelected(AppTab.PRACTICE) },
-            icon = { Icon(Icons.Default.MenuBook, contentDescription = "学习") },
-            label = { Text("学习", fontSize = 11.sp) },
+            icon = { Icon(Icons.Default.MenuBook, contentDescription = "学习", modifier = Modifier.shadow(if (currentTab == AppTab.PRACTICE) 4.dp else 0.dp, CircleShape)) },
+            label = { Text("学习", fontSize = 11.sp, fontWeight = if (currentTab == AppTab.PRACTICE) FontWeight.Bold else FontWeight.Normal) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -418,8 +418,8 @@ fun BottomNavBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
         NavigationBarItem(
             selected = currentTab == AppTab.PROFILE,
             onClick = { onTabSelected(AppTab.PROFILE) },
-            icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
-            label = { Text("我的", fontSize = 11.sp) },
+            icon = { Icon(Icons.Default.Person, contentDescription = "我的", modifier = Modifier.shadow(if (currentTab == AppTab.PROFILE) 4.dp else 0.dp, CircleShape)) },
+            label = { Text("我的", fontSize = 11.sp, fontWeight = if (currentTab == AppTab.PROFILE) FontWeight.Bold else FontWeight.Normal) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
