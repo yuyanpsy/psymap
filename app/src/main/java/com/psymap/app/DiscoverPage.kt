@@ -1,5 +1,6 @@
 package com.psymap.app
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DiscoverPage(vm: PsyMapViewModel) {
     var selectedBankName by remember { mutableStateOf<String?>(null) }
@@ -43,7 +44,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
     Row(modifier = Modifier.fillMaxSize()) {
         // 左侧分类栏
         Column(
-            modifier = Modifier.width(80.dp).fillMaxHeight()
+            modifier = Modifier.width(96.dp).fillMaxHeight()
                 .background(Color(0xFFF5F5F5)).verticalScroll(rememberScrollState())
         ) {
             SubjectSideItem(label = "全部", selected = selectedBankName == null,
@@ -65,11 +66,11 @@ fun DiscoverPage(vm: PsyMapViewModel) {
 
         // 右侧
         LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight().background(Color.White)) {
-            // 题型筛选标签
-            item {
+            // 题型筛选标签（固定在顶部）
+            stickyHeader {
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
