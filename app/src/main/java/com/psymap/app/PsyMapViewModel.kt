@@ -545,19 +545,75 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         saveBanks()
     }
 
+    // ========== 记忆曲线筛选算法 ==========
+
+    /** 计算单道题的复习紧迫度（0~105，越高越需要复习） */
+    private fun calculateUrgency(q: Question): Double {
+        val totalAttempts = q.correctCount + q.wrongCount
+        val correctRate = q.correctRate
+
+        // 理想复习间隔（天），基于艾宾浩斯遗忘曲线
+        val idealInterval = when {
+            totalAttempts == 0 -> 0.0
+            correctRate < 0.4 -> 1.0
+            correctRate < 0.6 -> 2.0
+            correctRate < 0.75 -> 4.0
+            correctRate < 0.85 -> 7.0
+            correctRate < 0.95 -> 15.0
+            else -> 30.0
+        }
+
+        val daysSinceLastStudy = if (q.lastStudiedAt > 0)
+            (System.currentTimeMillis() - q.lastStudiedAt).toDouble() / 86400000.0
+        else 999.0  // 从未学习过
+
+        val overdue = daysSinceLastStudy - idealInterval
+
+        // 基础分：正确率越低越高（0~40）
+        val baseScore = (1.0 - correctRate) * 40.0
+        // 逾期分：超过理想间隔越久越高（0~40）
+        val overdueScore = (overdue * 5.0).coerceIn(0.0, 40.0)
+        // 新题加分
+        val newBonus = if (totalAttempts == 0) 15.0 else 0.0
+        // 错题加分
+        val wrongBonus = if (q.isInWrongBook) 10.0 else 0.0
+
+        return baseScore + overdueScore + newBonus + wrongBonus
+    }
+
+    /** 按记忆曲线筛选题目，返回排序后的题目列表 */
+    fun selectBySpacedRepetition(allQuestions: List<Question>, maxCount: Int = Int.MAX_VALUE): List<Question> {
+        if (allQuestions.isEmpty()) return emptyList()
+
+        val scored = allQuestions.map { it to calculateUrgency(it) }
+            .sortedByDescending { it.second }
+
+        // urgency > 0 的优先入选
+        val urgent = scored.filter { it.second > 0 }
+        // urgency <= 0 的有 5% 概率入选（避免完全不出现）
+        val notUrgent = scored.filter { it.second <= 0 }.filter { Math.random() < 0.05 }
+
+        val selected = (urgent + notUrgent).take(maxCount).map { it.first }
+        return selected
+    }
+
     // ========== 学习功能 ==========
-    var studyQuestionIds by mutableStateOf(listOf<String>())  // 自定义题目列表（错题/收藏练习用）
+    var studyQuestionIds by mutableStateOf(listOf<String>())
 
     fun startStudySession(bankId: String, shuffle: Boolean = false) {
         currentBankId = bankId
         currentQuestionIndex = 0
         sessionCorrectCount = 0
         sessionTotalCount = 0
+
+        val allQuestions = getQuestionsForBank(bankId)
+        // 用记忆曲线筛选并排序
+        val selected = selectBySpacedRepetition(allQuestions)
+
         if (shuffle) {
-            // 乱序：把题目ID列表打乱，用 studyQuestionIds 控制顺序
-            studyQuestionIds = getQuestionsForBank(bankId).shuffled().map { it.id }
+            studyQuestionIds = selected.shuffled().map { it.id }
         } else {
-            studyQuestionIds = emptyList()  // 顺序模式用原始列表
+            studyQuestionIds = selected.map { it.id }
         }
     }
 
@@ -600,7 +656,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     reviewCount = it.reviewCount + 1,
                     isInWrongBook = !isCorrect,
                     correctCount = if (isCorrect) it.correctCount + 1 else it.correctCount,
-                    wrongCount = if (!isCorrect) it.wrongCount + 1 else it.wrongCount
+                    wrongCount = if (!isCorrect) it.wrongCount + 1 else it.wrongCount,
+                    lastStudiedAt = System.currentTimeMillis()
                 )
             } else it
         }

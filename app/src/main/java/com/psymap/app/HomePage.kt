@@ -2212,7 +2212,22 @@ private fun generateExamQuestions(
     totalMinutes: Int,
     includeTypes: Set<QuestionType>
 ): List<Question> {
-    val available = allQuestions.filter { it.type in includeTypes }.shuffled()
+    // 按记忆曲线紧迫度排序（紧迫的优先入选考试）
+    val available = allQuestions.filter { it.type in includeTypes }
+    val scored = available.map { q ->
+        val totalAttempts = q.correctCount + q.wrongCount
+        val correctRate = q.correctRate
+        val idealInterval = when {
+            totalAttempts == 0 -> 0.0; correctRate < 0.4 -> 1.0; correctRate < 0.6 -> 2.0
+            correctRate < 0.75 -> 4.0; correctRate < 0.85 -> 7.0; correctRate < 0.95 -> 15.0; else -> 30.0
+        }
+        val daysSince = if (q.lastStudiedAt > 0) (System.currentTimeMillis() - q.lastStudiedAt).toDouble() / 86400000.0 else 999.0
+        val overdue = daysSince - idealInterval
+        val urgency = (1.0 - correctRate) * 40 + (overdue * 5).coerceIn(0.0, 40.0) +
+            (if (totalAttempts == 0) 15.0 else 0.0) + (if (q.isInWrongBook) 10.0 else 0.0)
+        q to urgency
+    }.sortedByDescending { it.second }.map { it.first }
+
     val fastTypes = setOf(QuestionType.VOCAB_PHRASE, QuestionType.LONG_SENTENCE, QuestionType.SINGLE_CHOICE, QuestionType.MULTI_CHOICE)
     val midTypes = setOf(QuestionType.SHORT_ANSWER)
     val slowTypes = setOf(QuestionType.ESSAY, QuestionType.CASE_ANALYSIS, QuestionType.COMPOSITION, QuestionType.COMPREHENSIVE)
@@ -2229,9 +2244,9 @@ private fun generateExamQuestions(
         }
         return result
     }
-    return (pickQuestions(available.filter { it.type in fastTypes }, fastMinutes) +
-            pickQuestions(available.filter { it.type in midTypes }, midMinutes) +
-            pickQuestions(available.filter { it.type in slowTypes }, slowMinutes)).shuffled()
+    return (pickQuestions(scored.filter { it.type in fastTypes }, fastMinutes) +
+            pickQuestions(scored.filter { it.type in midTypes }, midMinutes) +
+            pickQuestions(scored.filter { it.type in slowTypes }, slowMinutes)).shuffled()
 }
 
 

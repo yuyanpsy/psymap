@@ -53,7 +53,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
     ) {
         // 用户头像区域（参考截图风格）
         item {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
@@ -89,24 +89,19 @@ fun ProfilePage(vm: PsyMapViewModel) {
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        Text(
-                            if (vm.isAdmin) "管理员" else "普通用户",
-                            fontSize = 13.sp,
-                            color = Color.White.copy(alpha = 0.8f)
-                        )
                     }
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     "失败不是终点，而是提升能力、靠近目标的必经过程。天赋只是起点，持续坚定的努力，才是获得成功与回报的根本原因。",
-                    fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f), lineHeight = 16.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                    fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f), lineHeight = 16.sp
                 )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     "—— 卡罗尔·德韦克（Carol S. Dweck）",
                     fontSize = 11.sp, color = Color.White.copy(alpha = 0.7f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End
                 )
             }
         }

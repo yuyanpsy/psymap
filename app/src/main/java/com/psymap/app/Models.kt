@@ -89,11 +89,15 @@ data class Question(
     var isFrequent: Boolean = false,           // 常考标签
     var isMemorize: Boolean = false,           // 多背标签
     var ttsGenerated: Boolean = false,         // 已生成TTS音频
-    val createdAt: Long = System.currentTimeMillis()  // 创建时间
+    val createdAt: Long = System.currentTimeMillis(),  // 创建时间
+    var lastStudiedAt: Long = 0                // 上次参与学习/考试的时间戳
 ) {
     val errorRate: Double
         get() = if (correctCount + wrongCount == 0) 0.0
                 else wrongCount.toDouble() / (correctCount + wrongCount)
+    val correctRate: Double
+        get() = if (correctCount + wrongCount == 0) 0.0
+                else correctCount.toDouble() / (correctCount + wrongCount)
 }
 
 // ==================== 学习记录 ====================
