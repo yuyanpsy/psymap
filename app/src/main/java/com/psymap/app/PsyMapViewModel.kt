@@ -479,11 +479,15 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteBank(bankId: String) {
         if (currentUser.role != UserRole.ADMIN) return
+        val questionIds = questions.filter { it.bankId == bankId }.map { it.id }
         questions = questions.filter { it.bankId != bankId }
         questionBanks = questionBanks.filter { it.id != bankId }
         saveBanks()
         saveQuestions()
-        syncToCloud { SupabaseClient.deleteBank(bankId) }
+        syncToCloud {
+            if (questionIds.isNotEmpty()) SupabaseClient.deleteQuestions(questionIds)
+            SupabaseClient.deleteBank(bankId)
+        }
     }
 
     fun getQuestionsForBank(bankId: String): List<Question> {
@@ -543,6 +547,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == bankId) it.copy(questionCount = count) else it
         }
         saveBanks()
+        syncToCloud { questionBanks.find { it.id == bankId }?.let { SupabaseClient.upsertBank(it) } }
     }
 
     // ========== 记忆曲线筛选算法 ==========
