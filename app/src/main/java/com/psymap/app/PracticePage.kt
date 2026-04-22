@@ -202,26 +202,7 @@ fun WrongBookList(vm: PsyMapViewModel, onClickQuestion: (Question) -> Unit) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("共 ${wrongQuestions.size} 道错题  ·  点击可编辑", fontSize = 13.sp, color = Color.Gray) }
         items(wrongQuestions) { question ->
-            val bank = vm.questionBanks.find { it.id == question.bankId }
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable { onClickQuestion(question) },
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (bank != null) {
-                            Text("${bank.subject.emoji} ${bank.name}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text("错误率 ${(question.errorRate * 100).toInt()}%", fontSize = 11.sp, color = Color(0xFFD32F2F))
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(question.content, fontSize = 14.sp, maxLines = 3)
-                    Spacer(Modifier.height(4.dp))
-                    Text("已复习 ${question.reviewCount} 次", fontSize = 11.sp, color = Color.Gray)
-                }
-            }
+            QuestionListItem(question, vm, onClickQuestion)
         }
     }
 }
@@ -235,34 +216,41 @@ fun FavoritesList(vm: PsyMapViewModel, onClickQuestion: (Question) -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.StarBorder, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.Gray)
                 Spacer(Modifier.height(8.dp))
-                Text("暂无收藏题目", color = Color.Gray)
+                Text("暂无收藏", color = Color.Gray)
             }
         }
         return
     }
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("点击可编辑", fontSize = 13.sp, color = Color.Gray) }
+        item { Text("共 ${favorites.size} 道收藏  ·  点击可编辑", fontSize = 13.sp, color = Color.Gray) }
         items(favorites) { question ->
-            val bank = vm.questionBanks.find { it.id == question.bankId }
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable { onClickQuestion(question) },
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(question.content, fontSize = 14.sp, maxLines = 2)
-                        Spacer(Modifier.height(4.dp))
-                        Row {
-                            if (bank != null) Text("${bank.subject.emoji} ${bank.name}", fontSize = 11.sp, color = Color.Gray)
-                            Spacer(Modifier.width(8.dp))
-                            Text("错误率 ${(question.errorRate * 100).toInt()}%", fontSize = 11.sp, color = Color.Gray)
-                        }
-                    }
-                    IconButton(onClick = { vm.toggleFavorite(question.id) }) {
-                        Icon(Icons.Default.Star, contentDescription = "取消收藏", tint = Color(0xFFFF9800))
-                    }
+            QuestionListItem(question, vm, onClickQuestion)
+        }
+    }
+}
+
+// ==================== 统一题目卡片 ====================
+@Composable
+private fun QuestionListItem(question: Question, vm: PsyMapViewModel, onClick: (Question) -> Unit) {
+    val bank = vm.questionBanks.find { it.id == question.bankId }
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick(question) },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(question.content, fontSize = 14.sp, maxLines = 3, lineHeight = 20.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (bank != null) {
+                    Text("${bank.subject.emoji} ${bank.name}", fontSize = 11.sp, color = Color(0xFF888888))
+                    Spacer(Modifier.width(12.dp))
                 }
+                Text("错误率 ${(question.errorRate * 100).toInt()}%", fontSize = 11.sp,
+                    color = if (question.errorRate > 0.5) Color(0xFFD32F2F) else Color(0xFF888888))
+                Spacer(Modifier.width(12.dp))
+                Text("复习${question.reviewCount}次", fontSize = 11.sp, color = Color(0xFF888888))
             }
         }
     }
