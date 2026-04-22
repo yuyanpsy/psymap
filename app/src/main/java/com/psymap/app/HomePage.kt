@@ -1323,7 +1323,7 @@ fun EditDailyTargetsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         title = { Text("编辑每日学习计划") },
         text = {
             Column {
-                Text("设定每个题库每天要复习的题目数量\n保存后将自动创建日历提醒（每天16:00）", fontSize = 13.sp, color = Color.Gray)
+                Text("设定每天的学习计划，并创建提醒", fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(12.dp))
                 vm.questionBanks.forEach { bank ->
                     val bankQuestionCount = vm.getQuestionsForBank(bank.id).size
