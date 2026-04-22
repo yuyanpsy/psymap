@@ -7,8 +7,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,6 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -128,7 +134,9 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
                                 progress = { miniProgress },
                                 modifier = Modifier.fillMaxWidth().height(2.dp),
                                 color = Color(0xFFFF8A00),
-                                trackColor = Color(0xFF555555)
+                                trackColor = Color(0xFF555555),
+                                gapSize = 0.dp,
+                                drawStopIndicator = {}
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -218,41 +226,67 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
         }
     }
 
-    // 选择图片来源弹窗
+    // 选择图片来源弹窗（底部弹出，iOS风格）
     if (showImageSourceDialog) {
-        AlertDialog(
-            onDismissRequest = { showImageSourceDialog = false },
-            title = { Text("选择图片来源") },
-            text = {
-                Column {
-                    TextButton(
-                        onClick = {
-                            showImageSourceDialog = false
-                            cameraPermission.launch(android.Manifest.permission.CAMERA)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("拍照", fontSize = 16.sp)
-                    }
-                    TextButton(
-                        onClick = {
-                            showImageSourceDialog = false
-                            galleryLauncher.launch("image/*")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("从相册选择", fontSize = 16.sp)
+        Dialog(onDismissRequest = { showImageSourceDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.weight(1f))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImageSourceDialog = false
+                                    cameraPermission.launch(android.Manifest.permission.CAMERA)
+                                }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFFEF6C00))
+                            Spacer(Modifier.width(12.dp))
+                            Text("拍照", fontSize = 16.sp)
+                        }
+                        HorizontalDivider(color = Color(0xFFF0F0F0))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showImageSourceDialog = false
+                                    galleryLauncher.launch("image/*")
+                                }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFFEF6C00))
+                            Spacer(Modifier.width(12.dp))
+                            Text("从相册选择", fontSize = 16.sp)
+                        }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showImageSourceDialog = false }) { Text("取消") }
+                Spacer(Modifier.height(8.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().clickable { showImageSourceDialog = false }
+                ) {
+                    Text("取消", fontSize = 16.sp, color = Color(0xFFEF6C00),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                Spacer(Modifier.height(16.dp))
             }
-        )
+        }
     }
 
     // 拍照导入弹窗

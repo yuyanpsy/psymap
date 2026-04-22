@@ -172,9 +172,12 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 progress = { rate },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(8.dp),
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
                                 color = MaterialTheme.colorScheme.primary,
-                                trackColor = Color(0xFFE0E0E0)
+                                trackColor = Color(0xFFE0E0E0),
+                                gapSize = 0.dp,
+                                drawStopIndicator = {}
                             )
                             Text("${(rate * 100).toInt()}%",
                                 fontSize = 12.sp, color = Color.Gray,

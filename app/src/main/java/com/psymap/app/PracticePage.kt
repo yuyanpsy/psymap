@@ -2,6 +2,7 @@ package com.psymap.app
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -154,9 +155,11 @@ fun BankPracticeList(vm: PsyMapViewModel, onStartStudy: (String, Boolean) -> Uni
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             LinearProgressIndicator(
                                 progress = { progress },
-                                modifier = Modifier.weight(1f).height(6.dp),
+                                modifier = Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)),
                                 color = MaterialTheme.colorScheme.primary,
-                                trackColor = Color(0xFFE0E0E0)
+                                trackColor = Color(0xFFE0E0E0),
+                                gapSize = 0.dp,
+                                drawStopIndicator = {}
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(if (todayUniqueStudied > 0) "${(progress * 100).toInt()}%" else "--",

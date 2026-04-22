@@ -419,8 +419,8 @@ fun StatsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     val rate = if (total > 0) correct.toFloat() / total else 0f
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("${bank.subject.emoji} ${bank.name}", fontSize = 13.sp, modifier = Modifier.widthIn(min = 80.dp), maxLines = 1)
-                        LinearProgressIndicator(progress = { rate }, modifier = Modifier.weight(1f).height(8.dp),
-                            color = MaterialTheme.colorScheme.primary, trackColor = Color(0xFFE0E0E0))
+                        LinearProgressIndicator(progress = { rate }, modifier = Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)),
+                            color = MaterialTheme.colorScheme.primary, trackColor = Color(0xFFE0E0E0), gapSize = 0.dp, drawStopIndicator = {})
                         Text("${(rate * 100).toInt()}%", fontSize = 12.sp, color = Color.Gray,
                             modifier = Modifier.padding(start = 8.dp).widthIn(min = 42.dp), textAlign = TextAlign.End)
                     }
@@ -1186,7 +1186,9 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(0.7f).height(6.dp),
                             color = Color.White,
                             trackColor = Color.White.copy(alpha = 0.3f),
-                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            gapSize = 0.dp,
+                            drawStopIndicator = {}
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -1231,7 +1233,9 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                             modifier = Modifier.fillMaxWidth().height(4.dp),
                                             color = if (isComplete) Color(0xFF4CAF50) else Color(0xFFFF8A00),
                                             trackColor = Color(0xFFF0F0F0),
-                                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                            gapSize = 0.dp,
+                                            drawStopIndicator = {}
                                         )
                                     }
                                 }

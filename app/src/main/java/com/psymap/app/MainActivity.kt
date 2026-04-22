@@ -30,7 +30,7 @@ fun PsyMapTheme(content: @Composable () -> Unit) {
             secondary = Color(0xFF795548),         // 棕色辅助
             secondaryContainer = Color(0xFFD7CCC8),
             surface = Color.White,
-            background = Color(0xFFF5F5F5),
+            background = Color(0xFFFAFAFA),
             error = Color(0xFFD32F2F),
             tertiary = Color(0xFF4CAF50),          // 绿色（正确）
             outline = Color(0xFFBDBDBD)
