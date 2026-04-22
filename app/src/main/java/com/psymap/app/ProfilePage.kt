@@ -93,7 +93,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                 }
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "失败不是终点，而是提升能力、靠近目标的必经过程。天赋只是起点，持续坚定的努力，才是获得成功与回报的根本原因。",
+                    "失败并非终点，而是精进自我、走向成功的垫脚石。同样天赋仅是起点，唯有坚定而持续的努力，方能激发潜能，最终实现目标。",
                     fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f), lineHeight = 16.sp
                 )
                 Spacer(Modifier.height(4.dp))
