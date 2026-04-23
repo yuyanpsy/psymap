@@ -376,9 +376,9 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.85f),
-            shape = RoundedCornerShape(16.dp)
+                .fillMaxSize()
+                .statusBarsPadding(),
+            shape = RoundedCornerShape(0.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 标题栏
