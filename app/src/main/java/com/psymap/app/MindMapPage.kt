@@ -190,9 +190,9 @@ fun MindMapPage(onBack: () -> Unit) {
                 actions = {
                     TextButton(onClick = {
                         filePicker.launch(arrayOf("image/*", "application/pdf", "application/x-freemind", "application/octet-stream", "*/*"))
-                    }) { Text("导入", color = Color.White) }
+                    }) { Text("导入", color = Color(0xFFEF6C00)) }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
             )
         }
     ) { padding ->
@@ -322,9 +322,9 @@ fun MindMapViewer(item: MindMapItem, onBack: () -> Unit) {
                     TextButton(
                         onClick = { if (canExport) exportLauncher.launch("${item.name}.mm") },
                         enabled = canExport
-                    ) { Text("导出", color = if (canExport) Color.White else Color.White.copy(alpha = 0.4f)) }
+                    ) { Text("导出", color = if (canExport) Color(0xFFEF6C00) else Color.Gray) }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
             )
         }
     ) { padding ->

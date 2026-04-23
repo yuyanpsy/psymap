@@ -80,7 +80,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
             )
         },
         bottomBar = {}

@@ -428,7 +428,7 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFFEF6C00))
+                            .background(Color.White)
                             .padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -451,17 +451,17 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("${bank.subject.emoji} ${bank.name}",
-                                    fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
+                                    fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFFEF6C00))
                                 if (vm.isAdmin) {
                                     IconButton(onClick = { editingBankName = true }) {
                                         Icon(Icons.Default.Edit, contentDescription = "编辑",
-                                            modifier = Modifier.size(18.dp), tint = Color.White)
+                                            modifier = Modifier.size(18.dp), tint = Color(0xFF333333))
                                     }
                                 }
                             }
                         }
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color.White)
+                            Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color(0xFF333333))
                         }
                     }
                 }
@@ -670,7 +670,7 @@ fun QuestionDetailDialog(
                             }
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             bottomBar = {}
@@ -885,7 +885,7 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
                             enabled = content.isNotBlank()
                         ) { Text("添加", fontWeight = FontWeight.Bold) }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             }
         ) { padding ->

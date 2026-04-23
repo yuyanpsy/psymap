@@ -690,7 +690,7 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             containerColor = Color(0xFFF5F5F5)
@@ -794,7 +794,7 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             containerColor = Color(0xFFF5F5F5)
@@ -989,7 +989,7 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             bottomBar = {}
@@ -1125,7 +1125,7 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             Icon(Icons.Default.Edit, contentDescription = "编辑", tint = Color(0xFF333333))
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             containerColor = Color(0xFFF5F5F5)
@@ -1390,7 +1390,7 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             containerColor = Color(0xFFF5F5F5)
@@ -1745,7 +1745,7 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                             Text("+ 导入音频", fontSize = 13.sp)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
             bottomBar = {
@@ -2243,7 +2243,7 @@ fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             topBar = {
                 TopAppBar(title = { Text("考一考", fontWeight = FontWeight.Bold) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, contentDescription = "返回") } },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White, navigationIconContentColor = Color.White))
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333)))
             }
         ) { padding ->
             Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
@@ -2589,7 +2589,7 @@ fun ExamResultPage(questions: List<Question>, correctSet: Set<String>, answeredI
     FullScreenDialog(onDismissRequest = {}, dismissOnBackPress = false) {
         Scaffold(
             topBar = { TopAppBar(title = { Text("考试结果", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEF6C00), titleContentColor = Color.White)) }
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00))) }
         ) { padding ->
             Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
