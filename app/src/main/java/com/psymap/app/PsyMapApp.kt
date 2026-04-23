@@ -107,6 +107,7 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
         return
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         bottomBar = {
             Column {
@@ -261,6 +262,10 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
             }
         }
     }
+
+    // 全屏页面栈（覆盖在 Scaffold 之上，不创建新 Window）
+    RenderFullScreenPages()
+    } // end outer Box
 
     // 选择图片来源弹窗（底部弹出，iOS风格）
     if (showImageSourceDialog) {
