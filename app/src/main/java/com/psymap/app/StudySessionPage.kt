@@ -63,7 +63,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
             TopAppBar(
                 title = {
                     Text("${vm.currentQuestionIndex + 1} / ${vm.getStudySessionSize()}",
-                        fontSize = 16.sp)
+                        fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 },
                 navigationIcon = {
                     IconButton(onClick = onFinish) {

@@ -424,12 +424,13 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
                         }
                     }
                 } else {
-                    // 正常标题栏
+                    // 正常标题栏（高度与 TopAppBar 一致）
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color.White)
-                            .padding(16.dp),
+                            .height(64.dp)
+                            .padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
