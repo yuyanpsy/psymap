@@ -27,11 +27,12 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
     var selectedType by remember { mutableStateOf("全部") }
     var selectedPeriod by remember { mutableStateOf("近6月") }
     var selectedSort by remember { mutableStateOf("收益率排序") }
+    var ascending by remember { mutableStateOf(false) }
     val typeMap = mapOf("全部" to "all", "股票型" to "gp", "混合型" to "hh",
         "债券型" to "zq", "指数型" to "zs", "QDII" to "qdii", "LOF" to "lof")
 
-    val sortedFunds = remember(funds, selectedSort, selectedPeriod) {
-        when (selectedSort) {
+    val sortedFunds = remember(funds, selectedSort, selectedPeriod, ascending) {
+        val sorted = when (selectedSort) {
             "AI评分排序" -> funds.sortedByDescending { it.aiScore }
             "净值排序" -> funds.sortedByDescending { it.nav }
             "日涨幅排序" -> funds.sortedByDescending { it.dayChange }
@@ -43,6 +44,7 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                 else -> funds.sortedByDescending { it.sixMonthChange }
             }
         }
+        if (ascending) sorted.reversed() else sorted
     }
     Column(modifier = Modifier.fillMaxSize().background(FundBg)) {
         Text("发现", fontSize = 20.sp, fontWeight = FontWeight.Bold,
@@ -95,6 +97,10 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                 }
             }
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = { ascending = !ascending },
+                contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text(if (ascending) "↑升序" else "↓降序", fontSize = 12.sp, color = FundBlue)
+            }
             Text("共${sortedFunds.size}只", fontSize = 11.sp, color = FundTextSecondary)
         }
         Spacer(Modifier.height(4.dp))

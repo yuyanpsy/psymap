@@ -39,7 +39,8 @@ fun FundDetailPage(
     val f = fund ?: return
 
     var showBuyDialog by remember { mutableStateOf(false) }
-    val isFav = vm.isFavorite(f.code)
+    val favorites by vm.favorites.collectAsState()
+    val isFav = favorites.any { it.code == f.code }
 
     Scaffold(
         topBar = {

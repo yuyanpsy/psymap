@@ -206,6 +206,11 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
             val totalTarget = vm.questionBanks.sumOf { vm.dailyTargets[it.id] ?: 0 }
             val todayDone = vm.questionBanks.sumOf { vm.todayCheckIn.bankStudiedIds[it.id]?.size ?: 0 }
             val remaining = (totalTarget - todayDone).coerceAtLeast(0)
+            val planCompleted = remaining == 0 && totalTarget > 0
+            // 完成后进入超额模式：显示总计划数，按超额学习递减
+            val extraDone = if (planCompleted) (todayDone - totalTarget).coerceAtLeast(0) else 0
+            val extraRemaining = if (planCompleted) (totalTarget - extraDone % totalTarget).let { if (it == totalTarget && extraDone > 0) totalTarget else it } else remaining
+            val displayCount = if (planCompleted) (totalTarget - (todayDone - totalTarget) % totalTarget).let { if (it == totalTarget) totalTarget else it } else remaining
             if (totalTarget > 0) {
                 FloatingActionButton(
                     onClick = {
@@ -228,13 +233,13 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
                         .padding(end = 20.dp, bottom = 16.dp)
                         .size(56.dp)
                         .shadow(8.dp, shape = CircleShape),
-                    containerColor = Color(0xFFFF8A00),
+                    containerColor = if (planCompleted) Color(0xFF4CAF50) else Color(0xFFFF8A00),
                     contentColor = Color.White,
                     shape = CircleShape
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Go", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("剩${remaining}题", fontSize = 8.sp, color = Color.White.copy(alpha = 0.8f))
+                        Text("${displayCount}题", fontSize = 8.sp, color = Color.White.copy(alpha = 0.8f))
                     }
                 }
             }

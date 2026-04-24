@@ -465,7 +465,44 @@ class FundRepository(context: Context) {
     }
 }
 
-/** FundRankItem 转 Fund */
+/** 多因子AI评分算法 — 更大区分度 */
+private fun calculateAiScore(
+    dayChange: Double, weekChange: Double, monthChange: Double,
+    threeMonthChange: Double, sixMonthChange: Double, yearChange: Double
+): Int {
+    // 动量因子（短期趋势）: 近1周涨幅的排名分位
+    val momentumScore = (weekChange * 3).coerceIn(-15.0, 15.0)
+
+    // 中期趋势因子: 近1月涨幅，但用对数压缩避免极端值
+    val midScore = if (monthChange > 0) Math.log(1 + monthChange) * 8
+        else -Math.log(1 - monthChange) * 8
+    val midClamped = midScore.coerceIn(-15.0, 15.0)
+
+    // 长期趋势因子: 近6月涨幅，对数压缩
+    val longScore = if (sixMonthChange > 0) Math.log(1 + sixMonthChange / 10) * 10
+        else -Math.log(1 - sixMonthChange / 10) * 10
+    val longClamped = longScore.coerceIn(-10.0, 10.0)
+
+    // 趋势一致性: 短中长期方向一致加分
+    val consistency = when {
+        weekChange > 0 && monthChange > 0 && sixMonthChange > 0 -> 5.0
+        weekChange < 0 && monthChange < 0 && sixMonthChange < 0 -> -5.0
+        else -> 0.0
+    }
+
+    // 波动惩罚: 日涨跌幅过大扣分（高波动=高风险）
+    val volatilityPenalty = -(Math.abs(dayChange) * 1.5).coerceAtMost(8.0)
+
+    // 均值回归因子: 涨太多的可能回调
+    val meanReversion = if (yearChange > 100) -5.0
+        else if (yearChange > 50) -2.0
+        else if (yearChange < -30) 3.0
+        else 0.0
+
+    val raw = 50 + momentumScore + midClamped + longClamped + consistency + volatilityPenalty + meanReversion
+    return raw.toInt().coerceIn(8, 97)
+}
+
 fun FundRankItem.toFund(): Fund = Fund(
     code = code, name = name, type = type,
     riskLevel = when {
@@ -479,6 +516,6 @@ fun FundRankItem.toFund(): Fund = Fund(
     weekChange = weekChange, monthChange = monthChange,
     threeMonthChange = threeMonthChange, sixMonthChange = sixMonthChange,
     yearChange = yearChange, threeYearChange = threeYearChange,
-    aiScore = (50 + (monthChange * 1.5 + weekChange * 2).coerceIn(-30.0, 45.0)).toInt().coerceIn(10, 98),
+    aiScore = calculateAiScore(dayChange, weekChange, monthChange, threeMonthChange, sixMonthChange, yearChange),
     fundSize = "", manager = ""
 )
