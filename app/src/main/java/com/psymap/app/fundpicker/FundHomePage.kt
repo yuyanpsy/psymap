@@ -2,11 +2,9 @@ package com.psymap.app.fundpicker
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +22,8 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
     val topFunds by vm.topFunds.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
     val errorMsg by vm.errorMsg.collectAsState()
+    val sectors by vm.sectors.collectAsState()
+    var sectorsExpanded by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(FundBg),
@@ -127,7 +127,7 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
             )
         }
 
-        // 热门板块
+        // 板块涨幅（真实数据）
         item {
             Spacer(Modifier.height(16.dp))
             Row(
@@ -136,19 +136,30 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
             ) {
                 Text("📊", fontSize = 18.sp)
                 Spacer(Modifier.width(4.dp))
-                Text("热门板块轮动", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("概念板块涨幅", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                if (sectors.size > 10) {
+                    Text(
+                        if (sectorsExpanded) "收起 ▲" else "展开全部 ▼",
+                        fontSize = 12.sp, color = FundBlue,
+                        modifier = Modifier.clickable { sectorsExpanded = !sectorsExpanded }
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
+        }
+
+        val displaySectors = if (sectorsExpanded) sectors else sectors.take(10)
+        itemsIndexed(displaySectors) { index, sector ->
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                market.hotSectors.forEach { sector ->
-                    SectorChip(sector)
-                }
+                Text("${index + 1}", fontSize = 12.sp, color = FundTextSecondary,
+                    modifier = Modifier.width(24.dp))
+                Text(sector.name, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(formatChange(sector.changePct), fontSize = 13.sp,
+                    color = changeColor(sector.changePct), fontWeight = FontWeight.Medium)
             }
         }
         } // end else
@@ -206,34 +217,6 @@ private fun AiTopFundCard(rank: Int, fund: Fund, onClick: () -> Unit, modifier: 
                         color = changeColor(fund.yearChange))
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SectorChip(sector: HotSector) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(1.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(sector.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(4.dp))
-            Text(formatChange(sector.changePct), fontSize = 13.sp,
-                color = changeColor(sector.changePct), fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(2.dp))
-            Text(
-                when (sector.status) {
-                    "strong" -> "🔴强势"
-                    "warming" -> "🟡回暖"
-                    else -> "⚪偏弱"
-                },
-                fontSize = 11.sp, color = FundTextSecondary
-            )
         }
     }
 }

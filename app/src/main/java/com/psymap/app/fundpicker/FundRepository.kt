@@ -77,7 +77,7 @@ class FundRepository(context: Context) {
     }
 
     /**
-     * 获取基金历史净值（真实数据）
+     * 获取基金历史净值（使用pingzhongdata全量数据）
      */
     fun fetchRealNavHistory(
         fundCode: String,
@@ -85,30 +85,32 @@ class FundRepository(context: Context) {
         onResult: (List<NavPoint>) -> Unit,
         onError: (String) -> Unit
     ) {
-        val cal = Calendar.getInstance()
-        val endDate = dateFormat.format(cal.time)
-        val days = if (period.days == Int.MAX_VALUE) 365 * 5 else period.days
-        cal.add(Calendar.DAY_OF_YEAR, -days)
-        val startDate = dateFormat.format(cal.time)
-        // perPage 要足够大以覆盖整个区间（交易日约为自然日的70%）
-        val perPage = (days * 0.72).toInt().coerceIn(10, 2000)
+        val days = if (period.days == Int.MAX_VALUE) Int.MAX_VALUE else period.days
 
-        Log.d(TAG, "fetchRealNavHistory: code=$fundCode, period=${period.label}, days=$days, perPage=$perPage, $startDate ~ $endDate")
-
-        FundApi.fetchNavHistory(
-            fundCode = fundCode,
-            perPage = perPage,
-            startDate = startDate,
-            endDate = endDate,
-            onResult = { points ->
-                val sorted = points.sortedBy { it.date } // 确保正序
-                Log.d(TAG, "净值数据: ${sorted.size}条, 区间=${sorted.firstOrNull()?.date}~${sorted.lastOrNull()?.date}")
-                mainHandler.post { onResult(sorted) }
+        FundApi.fetchAllNavData(fundCode,
+            onResult = { allPoints ->
+                // 按周期截取：取最后N个交易日
+                val tradingDays = if (days == Int.MAX_VALUE) allPoints.size
+                    else (days * 0.72).toInt().coerceAtLeast(5)
+                val filtered = if (allPoints.size > tradingDays) allPoints.takeLast(tradingDays) else allPoints
+                Log.d(TAG, "净值: 全量${allPoints.size}条, 截取${filtered.size}条(${period.label})")
+                mainHandler.post { onResult(filtered) }
             },
             onError = { error ->
                 Log.w(TAG, "净值API失败: $error, 使用模拟数据")
                 mainHandler.post { onResult(generateMockNavHistory(fundCode, period)) }
             }
+        )
+    }
+
+    /** 获取板块行情 */
+    fun fetchSectors(
+        onResult: (List<SectorItem>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FundApi.fetchSectorList(80,
+            onResult = { items -> mainHandler.post { onResult(items) } },
+            onError = { err -> mainHandler.post { onError(err) } }
         )
     }
 

@@ -204,6 +204,8 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
 
             // 全局 Go 浮动球
             val totalTarget = vm.questionBanks.sumOf { vm.dailyTargets[it.id] ?: 0 }
+            val todayDone = vm.questionBanks.sumOf { vm.todayCheckIn.bankStudiedIds[it.id]?.size ?: 0 }
+            val remaining = (totalTarget - todayDone).coerceAtLeast(0)
             if (totalTarget > 0) {
                 FloatingActionButton(
                     onClick = {
@@ -232,7 +234,7 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Go", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("${totalTarget}题", fontSize = 8.sp, color = Color.White.copy(alpha = 0.8f))
+                        Text("剩${remaining}题", fontSize = 8.sp, color = Color.White.copy(alpha = 0.8f))
                     }
                 }
             }

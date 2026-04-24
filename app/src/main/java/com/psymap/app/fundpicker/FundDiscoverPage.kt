@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -24,99 +25,121 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
     val query by vm.searchQuery.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
     var selectedType by remember { mutableStateOf("全部") }
+    var selectedPeriod by remember { mutableStateOf("近6月") }
+    var selectedSort by remember { mutableStateOf("收益率排序") }
+    val typeMap = mapOf("全部" to "all", "股票型" to "gp", "混合型" to "hh",
+        "债券型" to "zq", "指数型" to "zs", "QDII" to "qdii", "LOF" to "lof")
 
-    // 基金类型映射到API参数
-    val typeMap = mapOf(
-        "全部" to "all", "股票型" to "gp", "混合型" to "hh",
-        "债券型" to "zq", "指数型" to "zs", "QDII" to "qdii", "LOF" to "lof"
-    )
-
+    val sortedFunds = remember(funds, selectedSort, selectedPeriod) {
+        when (selectedSort) {
+            "AI评分排序" -> funds.sortedByDescending { it.aiScore }
+            "净值排序" -> funds.sortedByDescending { it.nav }
+            "日涨幅排序" -> funds.sortedByDescending { it.dayChange }
+            else -> when (selectedPeriod) {
+                "近1周" -> funds.sortedByDescending { it.weekChange }
+                "近1月" -> funds.sortedByDescending { it.monthChange }
+                "近3月" -> funds.sortedByDescending { it.threeMonthChange }
+                "近1年" -> funds.sortedByDescending { it.yearChange }
+                else -> funds.sortedByDescending { it.sixMonthChange }
+            }
+        }
+    }
     Column(modifier = Modifier.fillMaxSize().background(FundBg)) {
         Text("发现", fontSize = 20.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
-
-        // 搜索栏
         OutlinedTextField(
-            value = query,
-            onValueChange = { vm.search(it) },
+            value = query, onValueChange = { vm.search(it) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             placeholder = { Text("搜索基金名称/代码", fontSize = 14.sp) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            shape = RoundedCornerShape(12.dp),
-            singleLine = true,
+            shape = RoundedCornerShape(12.dp), singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
-                focusedBorderColor = FundBlue, unfocusedBorderColor = Color(0xFFE0E0E0)
-            )
+                focusedBorderColor = FundBlue, unfocusedBorderColor = Color(0xFFE0E0E0))
         )
-
-        Spacer(Modifier.height(12.dp))
-
-        // 类型筛选 — 横向滚动，解决排列混乱问题
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Spacer(Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             typeMap.keys.forEach { type ->
-                FilterChip(
-                    selected = selectedType == type,
-                    onClick = {
-                        selectedType = type
-                        // 切换类型时重新从API加载对应类型的基金
-                        val apiType = typeMap[type] ?: "all"
-                        vm.repo.fetchRealFundRank(
-                            fundType = apiType,
-                            pageSize = 100,
-                            onResult = { newFunds ->
-                                vm.search("") // 清空搜索
-                                // 通过 refresh 更新
-                            },
-                            onError = { }
-                        )
-                        vm.loadRealDataByType(apiType)
-                    },
-                    label = { Text(type, fontSize = 13.sp) },
+                FilterChip(selected = selectedType == type,
+                    onClick = { selectedType = type; vm.loadRealDataByType(typeMap[type] ?: "all") },
+                    label = { Text(type, fontSize = 12.sp) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = FundBlue,
-                        selectedLabelColor = Color.White
-                    )
-                )
+                        selectedContainerColor = FundBlue, selectedLabelColor = Color.White))
             }
         }
-
-        Spacer(Modifier.height(8.dp))
-
-        // 基金列表
+        Spacer(Modifier.height(4.dp))
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            var pe by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { pe = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp)) { Text("$selectedPeriod ▾", fontSize = 12.sp) }
+                DropdownMenu(expanded = pe, onDismissRequest = { pe = false }) {
+                    listOf("近1周","近1月","近3月","近6月","近1年").forEach { o ->
+                        DropdownMenuItem(text = { Text(o) }, onClick = { selectedPeriod = o; pe = false })
+                    }
+                }
+            }
+            var se by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { se = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp)) { Text("$selectedSort ▾", fontSize = 12.sp) }
+                DropdownMenu(expanded = se, onDismissRequest = { se = false }) {
+                    listOf("收益率排序","AI评分排序","净值排序","日涨幅排序").forEach { o ->
+                        DropdownMenuItem(text = { Text(o) }, onClick = { selectedSort = o; se = false })
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Text("共${sortedFunds.size}只", fontSize = 11.sp, color = FundTextSecondary)
+        }
+        Spacer(Modifier.height(4.dp))
         if (isLoading && funds.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = FundBlue)
             }
         } else {
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(funds, key = { it.code }) { fund ->
-                    FundListItem(fund = fund, onClick = { onFundClick(fund) })
-                }
-                if (funds.isEmpty()) {
-                    item {
-                        Box(modifier = Modifier.fillMaxWidth().padding(48.dp),
-                            contentAlignment = Alignment.Center) {
-                            Text("暂无匹配基金", fontSize = 14.sp, color = FundTextSecondary)
+            val pChange: (Fund) -> Double = { f -> when (selectedPeriod) {
+                "近1周" -> f.weekChange; "近1月" -> f.monthChange; "近3月" -> f.threeMonthChange
+                "近1年" -> f.yearChange; else -> f.sixMonthChange } }
+            LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(sortedFunds, key = { it.code }) { fund ->
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(1.dp),
+                        onClick = { onFundClick(fund) }) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(fund.name, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(fund.code, fontSize = 11.sp, color = FundTextSecondary)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column { Text(formatChange(pChange(fund)), fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold, color = changeColor(pChange(fund)))
+                                    Text("${selectedPeriod}收益", fontSize = 11.sp, color = FundTextSecondary) }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(formatChange(fund.dayChange), fontSize = 14.sp, color = changeColor(fund.dayChange))
+                                    Text("日涨幅", fontSize = 11.sp, color = FundTextSecondary) }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("%.4f".format(fund.nav), fontSize = 14.sp)
+                                    Text("净值", fontSize = 11.sp, color = FundTextSecondary) }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("${fund.aiScore}%", fontSize = 14.sp, color = FundBlue, fontWeight = FontWeight.Medium)
+                                    Text("AI评分", fontSize = 11.sp, color = FundTextSecondary) }
+                            }
                         }
                     }
                 }
-                // 数据量提示
-                item {
-                    Text("共 ${funds.size} 只基金", fontSize = 12.sp,
-                        color = FundTextSecondary,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
+                if (sortedFunds.isEmpty()) { item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                        Text("暂无匹配基金", fontSize = 14.sp, color = FundTextSecondary) } } }
             }
         }
     }

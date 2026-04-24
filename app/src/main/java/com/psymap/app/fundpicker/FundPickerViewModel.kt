@@ -81,6 +81,10 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
     private val _compareResults = MutableStateFlow<List<ModelCompareResult>>(emptyList())
     val compareResults = _compareResults.asStateFlow()
 
+    // 板块行情
+    private val _sectors = MutableStateFlow<List<SectorItem>>(emptyList())
+    val sectors = _sectors.asStateFlow()
+
     private val _backtestResults = MutableStateFlow<List<BacktestResult>>(emptyList())
     val backtestResults = _backtestResults.asStateFlow()
 
@@ -119,7 +123,13 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
                 val current = _market.value
                 _market.value = current.copy(indices = indices)
             },
-            onError = { /* 使用默认模拟数据 */ }
+            onError = { }
+        )
+
+        // 加载板块行情
+        repo.fetchSectors(
+            onResult = { items -> _sectors.value = items },
+            onError = { }
         )
     }
 

@@ -152,6 +152,80 @@ object FundApi {
     }
 
     // ==================== 基金详情（规模、成立日期、经理、费率等） ====================
+
+    // ==================== 全量净值数据（解决分页限制问题） ====================
+    /**
+     * 从pingzhongdata获取全量净值（Data_netWorthTrend）
+     * 一次性获取成立以来全部数据，客户端按周期截取
+     */
+    fun fetchAllNavData(
+        fundCode: String,
+        onResult: (List<NavPoint>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val url = "https://fund.eastmoney.com/pingzhongdata/$fundCode.js?v=${System.currentTimeMillis()}"
+        request(url, { body ->
+            try {
+                val points = parseNetWorthTrend(body)
+                Log.d(TAG, "全量净值: ${points.size}条, code=$fundCode")
+                onResult(points)
+            } catch (e: Exception) {
+                Log.e(TAG, "解析全量净值失败", e)
+                onError("解析失败: ${e.message}")
+            }
+        }, onError)
+    }
+
+    private fun parseNetWorthTrend(raw: String): List<NavPoint> {
+        val points = mutableListOf<NavPoint>()
+        val start = raw.indexOf("Data_netWorthTrend =")
+        if (start < 0) return points
+        val arrayStart = raw.indexOf("[", start)
+        val arrayEnd = raw.indexOf("];", arrayStart)
+        if (arrayStart < 0 || arrayEnd < 0) return points
+        val arrayStr = raw.substring(arrayStart, arrayEnd + 1)
+        val regex = Regex("\"x\":([0-9]+),\"y\":([0-9.]+),\"equityReturn\":([0-9.-]+)")
+        for (match in regex.findAll(arrayStr)) {
+            val timestamp = match.groupValues[1].toLongOrNull() ?: continue
+            val nav = match.groupValues[2].toDoubleOrNull() ?: continue
+            val changePct = match.groupValues[3].toDoubleOrNull() ?: 0.0
+            val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
+                .format(java.util.Date(timestamp))
+            points.add(NavPoint(date = date, nav = nav, accNav = nav, changePct = changePct))
+        }
+        return points
+    }
+
+    // ==================== 板块行情 ====================
+    fun fetchSectorList(
+        pageSize: Int = 50,
+        onResult: (List<SectorItem>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val url = "https://push2.eastmoney.com/api/qt/clist/get" +
+                "?pn=1&pz=$pageSize&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3" +
+                "&fields=f2,f3,f12,f14"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val data = map["data"] as? Map<String, Any>
+                @Suppress("UNCHECKED_CAST")
+                val diff = data?.get("diff") as? List<Map<String, Any>>
+                val sectors = diff?.map { item ->
+                    SectorItem(
+                        name = (item["f14"] as? String) ?: "",
+                        code = (item["f12"] as? String) ?: "",
+                        changePct = (item["f3"] as? Double) ?: 0.0
+                    )
+                } ?: emptyList()
+                onResult(sectors)
+            } catch (e: Exception) { onError("解析板块数据失败: ${e.message}") }
+        }, onError)
+    }
+
+    // ==================== 基金详情 ====================
     /**
      * 获取基金详情数据
      * 接口: http://fund.eastmoney.com/pingzhongdata/{code}.js
@@ -388,4 +462,11 @@ data class FundDetailData(
     val bondRatio: String = "",
     val cashRatio: String = "",
     val instHoldRatio: String = ""
+)
+
+/** 板块行情项 */
+data class SectorItem(
+    val name: String = "",
+    val code: String = "",
+    val changePct: Double = 0.0
 )
