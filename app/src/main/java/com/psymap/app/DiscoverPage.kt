@@ -31,15 +31,16 @@ fun DiscoverPage(vm: PsyMapViewModel) {
     var filterMemorize by remember { mutableStateOf(false) }
 
     val selectedBank = if (selectedBankName != null) vm.questionBanks.find { it.id == selectedBankName } else null
-    val availableTypes: List<QuestionType> = when {
+    val bankAvailableTypes: List<QuestionType> = when {
         selectedBank != null -> selectedBank.subject.availableQuestionTypes()
         else -> QuestionType.entries.toList()
     }
+    val allTypes = QuestionType.entries.toList()
 
     // 计算当前筛选范围内每个题型实际有多少题
     val filteredBanks = vm.questionBanks.filter { selectedBankName == null || it.id == selectedBankName }
     val allFilteredQuestions = filteredBanks.flatMap { vm.getQuestionsForBank(it.id) }
-    val typeCounts = availableTypes.associateWith { type -> allFilteredQuestions.count { it.type == type } }
+    val typeCounts = allTypes.associateWith { type -> allFilteredQuestions.count { it.type == type } }
 
     Row(modifier = Modifier.fillMaxSize()) {
         // 左侧分类栏
@@ -51,7 +52,11 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                 onClick = { selectedBankName = null; selectedTypes = emptySet() })
             vm.questionBanks.forEach { bank ->
                 SubjectSideItem(label = bank.name, selected = selectedBankName == bank.id,
-                    onClick = { selectedBankName = bank.id; selectedTypes = emptySet() })
+                    onClick = {
+                        selectedBankName = bank.id
+                        val newAvailable = bank.subject.availableQuestionTypes()
+                        selectedTypes = selectedTypes.filter { it in newAvailable }.toSet()
+                    })
             }
             Spacer(Modifier.height(8.dp))
             HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
@@ -88,17 +93,19 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                             labelColor = Color(0xFF666666)
                         )
                     )
-                    availableTypes.forEach { type ->
+                    allTypes.forEach { type ->
+                        val isAvailable = type in bankAvailableTypes
                         val hasQuestions = (typeCounts[type] ?: 0) > 0
+                        val canSelect = isAvailable && hasQuestions
                         FilterChip(
                             selected = type in selectedTypes,
                             onClick = {
-                                if (hasQuestions) {
+                                if (canSelect) {
                                     selectedTypes = if (type in selectedTypes) selectedTypes - type else selectedTypes + type
                                 }
                             },
                             label = { Text(type.label, fontSize = 12.sp) },
-                            enabled = hasQuestions,
+                            enabled = canSelect,
                             shape = RoundedCornerShape(20.dp),
                             border = null,
                             colors = FilterChipDefaults.filterChipColors(

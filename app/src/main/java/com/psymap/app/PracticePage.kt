@@ -287,7 +287,7 @@ fun QuestionDetailInline(
             if (liveQuestion.options.isNotEmpty()) {
                 Text("选项", fontSize = 12.sp, color = Color.Gray)
                 liveQuestion.options.forEachIndexed { i, opt ->
-                    Text("${('A' + i)}. $opt", fontSize = 14.sp, modifier = Modifier.padding(vertical = 2.dp))
+                    SimpleMarkdownText("${('A' + i)}. $opt")
                 }
                 Spacer(Modifier.height(12.dp))
             }
@@ -305,9 +305,9 @@ fun QuestionDetailInline(
             // 解析
             if (liveQuestion.explanation.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)), modifier = Modifier.fillMaxWidth()) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)), modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF7B1FA2))
+                        Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE65100))
                         Spacer(Modifier.height(4.dp))
                         SimpleMarkdownText(liveQuestion.explanation)
                     }

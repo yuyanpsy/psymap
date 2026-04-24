@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 
 /**
  * 全局全屏页面管理器。
@@ -39,8 +40,10 @@ object FullScreenPages {
     fun dismissTop() {
         if (stack.isNotEmpty()) {
             val top = stack.last()
-            top.onDismiss()
+            // 先从栈中移除，再调用 onDismiss 回调
+            // 这样 onDismiss 触发的 DisposableEffect.onDispose 中的 dismiss(id) 不会重复操作
             stack.removeAt(stack.size - 1)
+            top.onDismiss()
         }
     }
 }
@@ -50,16 +53,21 @@ object FullScreenPages {
  */
 @Composable
 fun RenderFullScreenPages() {
+    val hasPages = FullScreenPages.stack.isNotEmpty()
+
+    // 统一的 BackHandler：只要栈非空就拦截系统返回手势
+    // 放在页面渲染之外，确保不会因为页面移除导致短暂的拦截空隙
+    BackHandler(enabled = hasPages) {
+        FullScreenPages.dismissTop()
+    }
+
     for (entry in FullScreenPages.stack) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .background(Color.White)
                 .statusBarsPadding()
         ) {
-            if (entry.dismissOnBackPress) {
-                BackHandler { entry.onDismiss(); FullScreenPages.stack.remove(entry) }
-            }
             entry.content()
         }
     }

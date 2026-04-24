@@ -229,6 +229,7 @@ fun ApiConfigDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 
 // ==================== 拍照导入弹窗 ====================
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit) {
     var selectedBankId by remember { mutableStateOf(vm.questionBanks.firstOrNull()?.id ?: "") }
@@ -246,28 +247,27 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
     }
 
     FullScreenDialog(onDismissRequest = { if (!importing) onDismiss() }) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .fillMaxHeight(0.8f),
-            shape = RoundedCornerShape(16.dp)
-        ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("拍照录题", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = { if (!importing) onDismiss() }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333))
+                )
+            },
+            containerColor = Color(0xFFFAFAFA)
+        ) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("拍照录题", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    IconButton(onClick = { if (!importing) onDismiss() }) {
-                        Icon(Icons.Default.Close, contentDescription = "关闭")
-                    }
-                }
-
                 Image(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = "拍照预览",
@@ -281,26 +281,20 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
                 Text("导入到题库:", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(8.dp))
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    vm.questionBanks.forEach { bank ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { if (!importing) selectedBankId = bank.id }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedBankId == bank.id,
-                                onClick = { if (!importing) selectedBankId = bank.id }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp)
-                        }
+                vm.questionBanks.forEach { bank ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { if (!importing) selectedBankId = bank.id }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedBankId == bank.id,
+                            onClick = { if (!importing) selectedBankId = bank.id }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp)
                     }
                 }
 
@@ -329,7 +323,8 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
                         vm.recognizeAndImport(bitmap, selectedBankId)
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF6C00)),
                     enabled = selectedBankId.isNotBlank() && !importing
                 ) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null,
@@ -337,6 +332,7 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
                     Spacer(Modifier.width(8.dp))
                     Text(if (importing) "识别中..." else "AI 识别并导入")
                 }
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
@@ -376,9 +372,9 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
     ) {
         Card(
             modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
-            shape = RoundedCornerShape(0.dp)
+                .fillMaxSize(),
+            shape = RoundedCornerShape(0.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 标题栏
@@ -567,11 +563,12 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF6C00))
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
                         Spacer(Modifier.width(8.dp))
-                        Text("添加题目")
+                        Text("添加题目", color = Color.White, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -698,6 +695,15 @@ fun QuestionDetailDialog(
                             label = { Text(type.label, fontSize = 11.sp) }
                         )
                     }
+                    // 显示不属于当前题库但存在的其他题型（置灰）
+                    QuestionType.entries.filter { it !in availableTypes }.forEach { type ->
+                        FilterChip(
+                            selected = liveQuestion.type == type,
+                            onClick = { },
+                            label = { Text(type.label, fontSize = 11.sp, color = Color(0xFFBDBDBD)) },
+                            enabled = false
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -771,7 +777,7 @@ fun QuestionDetailDialog(
                         Text("选项", fontSize = 12.sp, color = Color.Gray)
                         Spacer(Modifier.height(4.dp))
                         liveQuestion.options.forEachIndexed { i, opt ->
-                            Text(text = renderInlineMarkdown("${('A' + i)}. $opt"), fontSize = 14.sp, modifier = Modifier.padding(vertical = 2.dp))
+                            SimpleMarkdownText("${('A' + i)}. $opt")
                         }
                     }
 
@@ -787,9 +793,9 @@ fun QuestionDetailDialog(
                     // 解析显示
                     if (liveQuestion.explanation.isNotBlank()) {
                         Spacer(Modifier.height(12.dp))
-                        Text("💡 解析", fontSize = 12.sp, color = Color(0xFF7B1FA2))
+                        Text("💡 解析", fontSize = 12.sp, color = Color(0xFFE65100))
                         Spacer(Modifier.height(4.dp))
-                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5))) {
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 SimpleMarkdownText(liveQuestion.explanation)
                             }
@@ -901,11 +907,14 @@ fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit
                 Text("题型", fontSize = 12.sp, color = Color.Gray)
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    availableTypes.forEach { type ->
+                    QuestionType.entries.forEach { type ->
+                        val isAvailable = type in availableTypes
                         FilterChip(
                             selected = selectedType == type,
-                            onClick = { selectedType = type },
-                            label = { Text(type.label, fontSize = 11.sp) }
+                            onClick = { if (isAvailable) selectedType = type },
+                            label = { Text(type.label, fontSize = 11.sp,
+                                color = if (isAvailable) Color.Unspecified else Color(0xFFBDBDBD)) },
+                            enabled = isAvailable
                         )
                     }
                 }

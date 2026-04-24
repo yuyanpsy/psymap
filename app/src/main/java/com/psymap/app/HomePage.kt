@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -592,22 +593,34 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("📋 整体计划", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Row {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (planImagePath.isNotBlank() || planText.isNotBlank()) {
-                            TextButton(onClick = {
-                                planImagePath = ""; planText = ""
-                                planPrefs.edit().remove("plan_image").remove("plan_text").apply()
-                            }) { Text("清除", fontSize = 12.sp, color = Color(0xFFD32F2F)) }
+                            OutlinedButton(
+                                onClick = {
+                                    planImagePath = ""; planText = ""
+                                    planPrefs.edit().remove("plan_image").remove("plan_text").apply()
+                                },
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD32F2F)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) { Text("清除", fontSize = 12.sp, color = Color(0xFFD32F2F)) }
                         }
-                        TextButton(onClick = {
-                            planFilePicker.launch(arrayOf("image/*", "application/pdf", "text/*",
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                "application/vnd.ms-excel", "application/msword", "*/*"))
-                        }) {
-                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Button(
+                            onClick = {
+                                planFilePicker.launch(arrayOf("image/*", "application/pdf", "text/*",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/vnd.ms-excel", "application/msword", "*/*"))
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF6C00)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
                             Spacer(Modifier.width(4.dp))
-                            Text("导入计划", fontSize = 13.sp)
+                            Text("导入计划", fontSize = 12.sp, color = Color.White)
                         }
                     }
                 }
@@ -674,13 +687,6 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     val grouped = wrongQuestions.groupBy { it.bankId }
     var showStudySession by remember { mutableStateOf(false) }
 
-    if (showStudySession) {
-        FullScreenDialog(onDismissRequest = { showStudySession = false }) {
-            StudySessionPage(vm = vm, onFinish = { showStudySession = false })
-        }
-        return
-    }
-
     FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
@@ -694,7 +700,7 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
-            containerColor = Color(0xFFF5F5F5)
+            containerColor = Color(0xFFFAFAFA)
         ) { padding ->
             Column(
                 modifier = Modifier
@@ -768,6 +774,13 @@ fun WrongBookDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
             }
         }
     }
+
+    // 学习会话（叠加在错题本之上，不用 return 避免栈闪动）
+    if (showStudySession) {
+        FullScreenDialog(onDismissRequest = { showStudySession = false }) {
+            StudySessionPage(vm = vm, onFinish = { showStudySession = false })
+        }
+    }
 }
 
 // ==================== 收藏题目（全屏页面） ====================
@@ -777,13 +790,6 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     val favorites = vm.getFavoriteQuestions()
     val grouped = favorites.groupBy { it.bankId }
     var showStudySession by remember { mutableStateOf(false) }
-
-    if (showStudySession) {
-        FullScreenDialog(onDismissRequest = { showStudySession = false }) {
-            StudySessionPage(vm = vm, onFinish = { showStudySession = false })
-        }
-        return
-    }
 
     FullScreenDialog(onDismissRequest = onDismiss) {
         Scaffold(
@@ -798,7 +804,7 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
-            containerColor = Color(0xFFF5F5F5)
+            containerColor = Color(0xFFFAFAFA)
         ) { padding ->
             Column(
                 modifier = Modifier
@@ -870,6 +876,13 @@ fun FavoritesDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     Spacer(Modifier.height(16.dp))
                 }
             }
+        }
+    }
+
+    // 学习会话（叠加在收藏本之上，不用 return 避免栈闪动）
+    if (showStudySession) {
+        FullScreenDialog(onDismissRequest = { showStudySession = false }) {
+            StudySessionPage(vm = vm, onFinish = { showStudySession = false })
         }
     }
 }
@@ -1011,11 +1024,18 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
                             selectedBankId = bank.id; isCreatingNew = false
+                            // 清除不属于新题库的已选题型
+                            val newAvailable = bank.subject.availableQuestionTypes()
+                            if (selectedType != null && selectedType !in newAvailable) selectedType = null
                         }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(selected = selectedBankId == bank.id && !isCreatingNew,
-                            onClick = { selectedBankId = bank.id; isCreatingNew = false })
+                            onClick = {
+                                selectedBankId = bank.id; isCreatingNew = false
+                                val newAvailable = bank.subject.availableQuestionTypes()
+                                if (selectedType != null && selectedType !in newAvailable) selectedType = null
+                            })
                         Spacer(Modifier.width(4.dp))
                         Text("${bank.subject.emoji} ${bank.name}", fontSize = 14.sp)
                     }
@@ -1049,19 +1069,27 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
 
-                // 题目分类选择（根据题库科目动态变化）
+                // 题目分类选择（显示全部，不属于当前题库的置灰）
                 val typesForBank = if (isCreatingNew) newBankSubject.availableQuestionTypes()
                     else selectedBank?.subject?.availableQuestionTypes() ?: emptyList()
+                val allTypes = QuestionType.entries.toList()
 
                 Text("题目分类（可选，不选则由AI自动判断）", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth()) {
-                    typesForBank.forEach { type ->
+                    allTypes.forEach { type ->
+                        val isAvailable = typesForBank.isEmpty() || type in typesForBank
                         FilterChip(selected = selectedType == type,
-                            onClick = { selectedType = if (selectedType == type) null else type },
-                            label = { Text(type.label, fontSize = 11.sp) })
+                            onClick = {
+                                if (isAvailable) {
+                                    selectedType = if (selectedType == type) null else type
+                                }
+                            },
+                            label = { Text(type.label, fontSize = 11.sp,
+                                color = if (isAvailable) Color.Unspecified else Color(0xFFBDBDBD)) },
+                            enabled = isAvailable)
                     }
                 }
 
@@ -1129,7 +1157,7 @@ fun StudyPlanDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
-            containerColor = Color(0xFFF5F5F5)
+            containerColor = Color(0xFFFAFAFA)
         ) { padding ->
             Column(
                 modifier = Modifier
@@ -1394,7 +1422,7 @@ fun MakeAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
                 )
             },
-            containerColor = Color(0xFFF5F5F5)
+            containerColor = Color(0xFFFAFAFA)
         ) { padding ->
             Column(
                 modifier = Modifier
@@ -1893,7 +1921,7 @@ fun ListenAudioDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                     }
                 }
             },
-            containerColor = Color(0xFFF5F5F5)
+            containerColor = Color(0xFFFAFAFA)
         ) { padding ->
             Column(
                 modifier = Modifier
@@ -2233,10 +2261,11 @@ fun ExamSetupDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
     var examQuestions by remember { mutableStateOf(listOf<Question>()) }
 
     if (showExamSession && examQuestions.isNotEmpty()) {
-        ExamSessionPage(vm = vm, questions = examQuestions,
-            totalMinutes = totalMinutes.toIntOrNull() ?: 60,
-            onFinish = { showExamSession = false; onDismiss() })
-        return
+        FullScreenDialog(onDismissRequest = { showExamSession = false; onDismiss() }) {
+            ExamSessionPage(vm = vm, questions = examQuestions,
+                totalMinutes = totalMinutes.toIntOrNull() ?: 60,
+                onFinish = { showExamSession = false; onDismiss() })
+        }
     }
 
     FullScreenDialog(onDismissRequest = onDismiss) {
@@ -2420,7 +2449,7 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
                             Row(modifier = Modifier.padding(12.dp)) {
                                 Text("$label.", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                                 Spacer(Modifier.width(6.dp))
-                                Text(opt, fontSize = 14.sp)
+                                Text(text = renderInlineMarkdown(opt), fontSize = 14.sp)
                             }
                         }
                     }
@@ -2542,9 +2571,9 @@ fun ExamSessionPage(vm: PsyMapViewModel, questions: List<Question>, totalMinutes
                     }
                     if (liveQ.explanation.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
-                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)), modifier = Modifier.fillMaxWidth()) {
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)), modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF7B1FA2))
+                                Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE65100))
                                 Spacer(Modifier.height(4.dp))
                                 SimpleMarkdownText(liveQ.explanation)
                             }
@@ -2975,13 +3004,23 @@ fun SimpleMarkdownText(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-fun renderInlineMarkdown(text: String): String {
-    // 简单去除 **粗体** 标记，保留文字
-    return text.replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
-        .replace(Regex("__(.*?)__"), "$1")
-        .replace(Regex("\\*(.*?)\\*"), "$1")
-        .replace(Regex("_(.*?)_"), "$1")
-        .replace(Regex("`(.*?)`"), "$1")
+fun renderInlineMarkdown(text: String): androidx.compose.ui.text.AnnotatedString {
+    return androidx.compose.ui.text.buildAnnotatedString {
+        var remaining = text
+        val boldRegex = Regex("\\*\\*(.*?)\\*\\*|__(.*?)__")
+        while (remaining.isNotEmpty()) {
+            val match = boldRegex.find(remaining)
+            if (match == null) {
+                append(remaining)
+                break
+            }
+            append(remaining.substring(0, match.range.first))
+            pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
+            append(match.groupValues[1].ifEmpty { match.groupValues[2] })
+            pop()
+            remaining = remaining.substring(match.range.last + 1)
+        }
+    }
 }
 
 

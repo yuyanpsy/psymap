@@ -292,7 +292,7 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1))
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -346,11 +346,11 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5))
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("💡 解析", fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                                color = Color(0xFF7B1FA2))
+                                color = Color(0xFFE65100))
                             Spacer(Modifier.height(8.dp))
                             SimpleMarkdownText(liveQuestion.explanation)
                         }

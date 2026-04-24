@@ -185,7 +185,7 @@ fun MindMapPage(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("思维导图") },
+                title = { Text("思维导图", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") } },
                 actions = {
                     TextButton(onClick = {
@@ -297,7 +297,7 @@ fun MindMapViewer(item: MindMapItem, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = {
                         if (hasChanges) Toast.makeText(context, "已自动保存", Toast.LENGTH_SHORT).show()
@@ -313,10 +313,10 @@ fun MindMapViewer(item: MindMapItem, onBack: () -> Unit) {
                         }) {
                             Icon(
                                 if (isOutlineMode) Icons.Default.AccountTree else Icons.Default.FormatListBulleted,
-                                contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)
+                                contentDescription = null, tint = Color(0xFFEF6C00), modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text(if (isOutlineMode) "导图" else "大纲", color = Color.White, fontSize = 12.sp)
+                            Text(if (isOutlineMode) "导图" else "大纲", color = Color(0xFFEF6C00), fontSize = 12.sp)
                         }
                     }
                     TextButton(
@@ -420,7 +420,7 @@ fun MmOutlineView(
                             if (node.richHtml.isNotBlank()) {
                                 Spacer(Modifier.height(4.dp))
                                 // 用 WebView 渲染 richcontent（含图片）
-                                val richHtmlContent = "<html><body style='margin:0;padding:0;font-size:13px;line-height:1.5;color:${String.format("#%06X", 0xFFFFFF and color.hashCode())}'>${node.richHtml}</body></html>"
+                                val richHtmlContent = "<html><body style='margin:0;padding:0;font-family:Roboto,system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5;color:${String.format("#%06X", 0xFFFFFF and color.hashCode())}'>${node.richHtml}</body></html>"
                                 androidx.compose.ui.viewinterop.AndroidView(
                                     factory = { ctx ->
                                         android.webkit.WebView(ctx).apply {
@@ -498,7 +498,7 @@ fun MmMindMapView(
                             Spacer(Modifier.height(8.dp))
                             Text("富文本内容（含图片）", fontSize = 12.sp, color = Color.Gray)
                             Spacer(Modifier.height(4.dp))
-                            val richHtmlContent = "<html><body style='margin:0;padding:8px;font-size:13px;line-height:1.5;'>${node.richHtml}</body></html>"
+                            val richHtmlContent = "<html><body style='margin:0;padding:8px;font-family:Roboto,system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5;'>${node.richHtml}</body></html>"
                             androidx.compose.ui.viewinterop.AndroidView(
                                 factory = { ctx ->
                                     android.webkit.WebView(ctx).apply {
@@ -558,7 +558,7 @@ private fun generateMindMapHtml(nodes: List<MmNode>): String {
     return """<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=0.4,user-scalable=yes">
 <style>
-body{margin:0;background:#F5F5F5;overflow:auto;font-family:sans-serif}
+body{margin:0;background:#F5F5F5;overflow:auto;font-family:'Roboto',system-ui,-apple-system,sans-serif}
 .mm-container{position:relative;display:inline-block;min-width:100vw;min-height:100vh}
 .node-box{position:absolute;border-radius:6px;border:1.5px solid #ccc;background:#fff;padding:8px 10px;
   cursor:pointer;box-sizing:border-box;word-wrap:break-word;overflow-wrap:break-word;
@@ -585,7 +585,7 @@ function getColor(d,bi){return d==0?'#EF6C00':colors[bi%colors.length];}
 
 // 创建隐藏的测量 div
 var measureDiv=document.createElement('div');
-measureDiv.style.cssText='position:absolute;visibility:hidden;width:'+MAX_W+'px;padding:'+PY+'px '+PX+'px;box-sizing:border-box;font-family:sans-serif;line-height:1.5;word-wrap:break-word;overflow-wrap:break-word;';
+measureDiv.style.cssText='position:absolute;visibility:hidden;width:'+MAX_W+'px;padding:'+PY+'px '+PX+'px;box-sizing:border-box;font-family:Roboto,system-ui,-apple-system,sans-serif;line-height:1.5;word-wrap:break-word;overflow-wrap:break-word;';
 document.body.appendChild(measureDiv);
 
 function measureNode(n,d){
