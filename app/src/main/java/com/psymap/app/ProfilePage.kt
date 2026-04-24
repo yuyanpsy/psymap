@@ -38,6 +38,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
     var showAccountInfo by remember { mutableStateOf(false) }
     var showVersionInfo by remember { mutableStateOf(false) }
     var showCloudSync by remember { mutableStateOf(false) }
+    var showFundPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // 恢复：用系统文件选择器选备份文件（不受权限限制）
@@ -202,6 +203,11 @@ fun ProfilePage(vm: PsyMapViewModel) {
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column {
+                    ProfileMenuItem(Icons.Default.TrendingUp, "智选基金",
+                        subtitle = "AI选基工具") {
+                        showFundPicker = true
+                    }
+                    HorizontalDivider(color = Color(0xFFF0F0F0))
                     ProfileMenuItem(Icons.Default.Sync, "云端同步",
                         subtitle = if (vm.cloudSyncing) "同步中..." else if (vm.cloudUserId != null) "已连接" else "未连接") {
                         showCloudSync = true
@@ -397,6 +403,13 @@ fun ProfilePage(vm: PsyMapViewModel) {
     // 云端同步弹窗
     if (showCloudSync) {
         CloudSyncDialog(vm = vm, onDismiss = { showCloudSync = false })
+    }
+
+    // 智选基金全屏入口
+    if (showFundPicker) {
+        FullScreenDialog(onDismissRequest = { showFundPicker = false }) {
+            com.psymap.app.fundpicker.FundPickerApp(onBack = { showFundPicker = false })
+        }
     }
 }
 
