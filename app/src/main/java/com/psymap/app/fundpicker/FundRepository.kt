@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.psymap.app.SupabaseClient
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -444,6 +445,68 @@ class FundRepository(context: Context) {
         val totalProfit = totalValue - totalCost
         val totalProfitPct = if (totalCost > 0) totalProfit / totalCost * 100 else 0.0
         return Triple(totalValue, totalProfit, totalProfitPct)
+    }
+
+    // ==================== 云端同步 ====================
+
+    /** 将FundPicker数据推送到云端 */
+    suspend fun pushToCloud(): Boolean {
+        if (SupabaseClient.userId == null) return false
+        try {
+            val data: Map<String, Any> = mapOf(
+                "favorites" to getFavorites().toList(),
+                "positions" to (prefs.getString("positions", "[]") ?: "[]"),
+                "transactions" to (prefs.getString("transactions", "[]") ?: "[]"),
+                "risk_preference" to getRiskPreference(),
+                "default_period" to getDefaultPeriod().param
+            )
+            SupabaseClient.upsertFundPickerData(data)
+            Log.d(TAG, "FundPicker数据已推送到云端")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "推送云端失败", e)
+            return false
+        }
+    }
+
+    /** 从云端拉取FundPicker数据 */
+    suspend fun pullFromCloud(): Boolean {
+        if (SupabaseClient.userId == null) return false
+        try {
+            val data = SupabaseClient.fetchFundPickerData() ?: return false
+
+            // 恢复自选
+            @Suppress("UNCHECKED_CAST")
+            val favList = data["favorites"] as? List<String>
+            if (favList != null) {
+                prefs.edit().putStringSet("favorites", favList.toSet()).apply()
+            }
+
+            // 恢复持仓
+            val posJson = data["positions"] as? String
+            if (posJson != null) {
+                prefs.edit().putString("positions", posJson).apply()
+            }
+
+            // 恢复交易记录
+            val txnJson = data["transactions"] as? String
+            if (txnJson != null) {
+                prefs.edit().putString("transactions", txnJson).apply()
+            }
+
+            // 恢复偏好
+            val risk = data["risk_preference"] as? String
+            if (risk != null) setRiskPreference(risk)
+
+            val period = data["default_period"] as? String
+            if (period != null) prefs.edit().putString("default_period", period).apply()
+
+            Log.d(TAG, "FundPicker数据已从云端恢复")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "拉取云端失败", e)
+            return false
+        }
     }
 
     // ==================== 用户偏好 ====================

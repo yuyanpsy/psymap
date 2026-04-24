@@ -358,6 +358,25 @@ object SupabaseClient {
         } catch (e: Exception) { null }
     }
 
+    // ========== FundPicker 数据同步 ==========
+    suspend fun upsertFundPickerData(data: Map<String, Any>) {
+        val uid = userId ?: return
+        upsert("fund_picker_data", gson.toJson(listOf(mapOf("user_id" to uid, "data" to data))), "user_id")
+    }
+
+    suspend fun fetchFundPickerData(): Map<String, Any>? {
+        val uid = userId ?: return null
+        val json = get("fund_picker_data", "?user_id=eq.$uid&select=data&limit=1") ?: return null
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            @Suppress("UNCHECKED_CAST")
+            list.firstOrNull()?.get("data") as? Map<String, Any>
+        } catch (e: Exception) {
+            Log.e("Supabase", "fetchFundPickerData error", e)
+            null
+        }
+    }
+
     // ========== 合并推送（upsert，不删除云端数据） ==========
     suspend fun pushAll(
         banks: List<QuestionBank>, questions: List<Question>,

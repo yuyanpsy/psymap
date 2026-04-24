@@ -3,8 +3,10 @@ package com.psymap.app.fundpicker
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -89,8 +91,16 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
     val backtestResults = _backtestResults.asStateFlow()
 
     init {
-        // 启动时加载真实数据
         loadRealData()
+        // 启动时尝试从云端恢复数据
+        viewModelScope.launch {
+            val pulled = repo.pullFromCloud()
+            if (pulled) {
+                _favorites.value = repo.getFavoriteFunds()
+                refreshPortfolio()
+                Log.d("FundVM", "云端数据已恢复")
+            }
+        }
     }
 
     // ==================== 数据加载 ====================
@@ -213,6 +223,7 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
         if (repo.isFavorite(code)) repo.removeFavorite(code)
         else repo.addFavorite(code)
         _favorites.value = repo.getFavoriteFunds()
+        pushToCloud()
     }
 
     fun isFavorite(code: String): Boolean = repo.isFavorite(code)
@@ -221,13 +232,13 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun buy(fundCode: String, amount: Double): Boolean {
         val ok = repo.simulateBuy(fundCode, amount)
-        if (ok) refreshPortfolio()
+        if (ok) { refreshPortfolio(); pushToCloud() }
         return ok
     }
 
     fun sell(fundCode: String, amount: Double? = null, sellAll: Boolean = false): Boolean {
         val ok = repo.simulateSell(fundCode, amount, sellAll)
-        if (ok) refreshPortfolio()
+        if (ok) { refreshPortfolio(); pushToCloud() }
         return ok
     }
 
@@ -270,7 +281,13 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
     // ==================== 用户偏好 ====================
 
     fun getRiskPreference() = repo.getRiskPreference()
-    fun setRiskPreference(pref: String) = repo.setRiskPreference(pref)
+    fun setRiskPreference(pref: String) { repo.setRiskPreference(pref); pushToCloud() }
     fun getDefaultPeriod() = repo.getDefaultPeriod()
-    fun setDefaultPeriod(period: TimePeriod) = repo.setDefaultPeriod(period)
+    fun setDefaultPeriod(period: TimePeriod) { repo.setDefaultPeriod(period); pushToCloud() }
+
+    private fun pushToCloud() {
+        viewModelScope.launch {
+            repo.pushToCloud()
+        }
+    }
 }
