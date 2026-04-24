@@ -37,6 +37,7 @@ data class Fund(
     val threeMonthChange: Double = 0.0,
     val sixMonthChange: Double = 0.0,
     val yearChange: Double = 0.0,
+    val threeYearChange: Double = 0.0,  // 近3年涨跌幅
     val aiScore: Int = 0,           // AI预测上涨概率 0-100
     val fundSize: String = "",      // 基金规模
     val manager: String = "",       // 基金经理

@@ -476,7 +476,7 @@ fun FundRankItem.toFund(): Fund = Fund(
     nav = nav, navDate = type, dayChange = dayChange,
     weekChange = weekChange, monthChange = monthChange,
     threeMonthChange = threeMonthChange, sixMonthChange = sixMonthChange,
-    yearChange = yearChange,
+    yearChange = yearChange, threeYearChange = threeYearChange,
     aiScore = (50 + (monthChange * 1.5 + weekChange * 2).coerceIn(-30.0, 45.0)).toInt().coerceIn(10, 98),
     fundSize = "", manager = ""
 )
