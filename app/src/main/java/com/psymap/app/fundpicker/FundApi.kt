@@ -225,6 +225,34 @@ object FundApi {
         }, onError)
     }
 
+    // ==================== 基金搜索（实时联想） ====================
+    /**
+     * 通过东方财富搜索接口搜索基金
+     * 支持名称和代码模糊搜索
+     */
+    fun searchFund(
+        keyword: String,
+        onResult: (List<FundRankItem>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        // 用排行接口搜索，关键词作为过滤
+        val url = "https://fund.eastmoney.com/data/rankhandler.aspx" +
+                "?op=ph&dt=kf&ft=all&rs=&gs=0&sc=zzf&st=desc" +
+                "&sd=2025-01-01&ed=2026-12-31&qdii=&tabSubtype=,,,,,&pi=1&pn=200&dx=1" +
+                "&kw=$keyword&v=${System.currentTimeMillis()}"
+        val req = Request.Builder().url(url)
+            .addHeader("Referer", "https://fund.eastmoney.com/data/fundranking.html").build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError("搜索失败: ${e.message}") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.string() ?: ""
+                    onResult(parseFundRankData(body))
+                } catch (e: Exception) { onError("解析失败: ${e.message}") }
+            }
+        })
+    }
+
     // ==================== 基金详情 ====================
     /**
      * 获取基金详情数据

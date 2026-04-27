@@ -187,9 +187,26 @@ class FundRepository(context: Context) {
     fun searchFunds(keyword: String): List<Fund> {
         val cached = getCachedFunds()
         if (keyword.isBlank()) return cached
-        return cached.filter {
+        // 先从缓存搜
+        val local = cached.filter {
             it.name.contains(keyword, ignoreCase = true) || it.code.contains(keyword)
         }
+        return local
+    }
+
+    /** 实时在线搜索（当本地搜不到时调用） */
+    fun searchFundsOnline(
+        keyword: String,
+        onResult: (List<Fund>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FundApi.searchFund(keyword,
+            onResult = { items ->
+                val funds = items.map { it.toFund() }
+                mainHandler.post { onResult(funds) }
+            },
+            onError = { err -> mainHandler.post { onError(err) } }
+        )
     }
 
     fun getFundByCode(code: String): Fund? = getCachedFunds().find { it.code == code }

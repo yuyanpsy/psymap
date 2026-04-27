@@ -112,7 +112,7 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
         // 加载基金排行（真实数据）
         repo.fetchRealFundRank(
             fundType = "all",
-            pageSize = 50,
+            pageSize = 200,
             onResult = { funds ->
                 _funds.value = funds
                 _topFunds.value = funds.sortedByDescending { it.aiScore }.take(10)
@@ -149,8 +149,21 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
         _searchQuery.value = query
         if (query.isBlank()) {
             _funds.value = repo.getCachedFunds()
-        } else {
-            _funds.value = repo.searchFunds(query)
+            return
+        }
+        // 先搜本地缓存
+        val local = repo.searchFunds(query)
+        _funds.value = local
+        // 如果本地结果少于3条，同时发起在线搜索
+        if (local.size < 3 && query.length >= 2) {
+            repo.searchFundsOnline(query,
+                onResult = { online ->
+                    // 合并去重
+                    val merged = (local + online).distinctBy { it.code }
+                    _funds.value = merged
+                },
+                onError = { }
+            )
         }
     }
 
