@@ -22,8 +22,6 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
     val topFunds by vm.topFunds.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
     val errorMsg by vm.errorMsg.collectAsState()
-    val sectors by vm.sectors.collectAsState()
-    var sectorsExpanded by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(FundBg),
@@ -127,41 +125,6 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
             )
         }
 
-        // 板块涨幅（真实数据）
-        item {
-            Spacer(Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("📊", fontSize = 18.sp)
-                Spacer(Modifier.width(4.dp))
-                Text("概念板块涨幅", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                if (sectors.size > 10) {
-                    Text(
-                        if (sectorsExpanded) "收起 ▲" else "展开全部 ▼",
-                        fontSize = 12.sp, color = FundBlue,
-                        modifier = Modifier.clickable { sectorsExpanded = !sectorsExpanded }
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
-        val displaySectors = if (sectorsExpanded) sectors else sectors.take(10)
-        itemsIndexed(displaySectors) { index, sector ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("${index + 1}", fontSize = 12.sp, color = FundTextSecondary,
-                    modifier = Modifier.width(24.dp))
-                Text(sector.name, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                Text(formatChange(sector.changePct), fontSize = 13.sp,
-                    color = changeColor(sector.changePct), fontWeight = FontWeight.Medium)
-            }
-        }
         } // end else
     }
 }
