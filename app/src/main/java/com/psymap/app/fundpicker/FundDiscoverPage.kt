@@ -137,8 +137,10 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                                     Text("%.4f".format(fund.nav), fontSize = 14.sp)
                                     Text("净值", fontSize = 11.sp, color = FundTextSecondary) }
                                 Column(horizontalAlignment = Alignment.End) {
+                                    val isRealAi = fund.aiScore < 70 // 真实模型评分通常<70
                                     Text("${fund.aiScore}%", fontSize = 14.sp, color = FundBlue, fontWeight = FontWeight.Medium)
-                                    Text("AI评分", fontSize = 11.sp, color = FundTextSecondary) }
+                                    Text(if (isRealAi) "AI评分" else "AI估算", fontSize = 11.sp,
+                                        color = if (isRealAi) FundTextSecondary else Color(0xFFFF9800)) }
                             }
                         }
                     }

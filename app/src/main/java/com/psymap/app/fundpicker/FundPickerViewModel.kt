@@ -127,11 +127,16 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
             fundType = "all",
             pageSize = 200,
             onResult = { funds ->
-                _funds.value = funds
-                _topFunds.value = funds.sortedByDescending { it.aiScore }.take(10)
+                // 用真实AI评分替换统计评分
+                val updated = funds.map { fund ->
+                    val realScore = repo.getRealAiScore(fund.code)
+                    if (realScore >= 0) fund.copy(aiScore = realScore) else fund
+                }
+                _funds.value = updated
+                _topFunds.value = updated.sortedByDescending { it.aiScore }.take(10)
                 _favorites.value = repo.getFavoriteFunds()
                 _isLoading.value = false
-                Log.d("FundVM", "加载了 ${funds.size} 只基金（真实数据）")
+                Log.d("FundVM", "加载了 ${updated.size} 只基金")
             },
             onError = { error ->
                 _errorMsg.value = error
@@ -161,23 +166,25 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
     fun search(query: String) {
         _searchQuery.value = query
         if (query.isBlank()) {
-            _funds.value = repo.getCachedFunds()
+            _funds.value = repo.getCachedFunds().map { applyRealScore(it) }
             return
         }
-        // 先搜本地缓存
-        val local = repo.searchFunds(query)
+        val local = repo.searchFunds(query).map { applyRealScore(it) }
         _funds.value = local
-        // 如果本地结果少于3条，同时发起在线搜索
         if (local.size < 3 && query.length >= 2) {
             repo.searchFundsOnline(query,
                 onResult = { online ->
-                    // 合并去重
-                    val merged = (local + online).distinctBy { it.code }
+                    val merged = (local + online.map { applyRealScore(it) }).distinctBy { it.code }
                     _funds.value = merged
                 },
                 onError = { }
             )
         }
+    }
+
+    private fun applyRealScore(fund: Fund): Fund {
+        val realScore = repo.getRealAiScore(fund.code)
+        return if (realScore >= 0) fund.copy(aiScore = realScore) else fund
     }
 
     // ==================== 基金详情 ====================
@@ -292,7 +299,7 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
             fundType = fundType,
             pageSize = 100,
             onResult = { funds ->
-                _funds.value = funds
+                _funds.value = funds.map { applyRealScore(it) }
                 _isLoading.value = false
             },
             onError = { _isLoading.value = false }
