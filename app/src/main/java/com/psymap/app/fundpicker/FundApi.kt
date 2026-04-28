@@ -228,8 +228,32 @@ object FundApi {
     // ==================== AI预测API（Render云端） ====================
     private const val AI_API_BASE = "https://fundpicker-api.onrender.com"
 
+    /** 触发后台全量预测 */
+    fun triggerUpdate(onResult: (Map<String, Any>) -> Unit, onError: (String) -> Unit) {
+        request("$AI_API_BASE/trigger-update", { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                onResult(map)
+            } catch (e: Exception) { onError(e.message ?: "") }
+        }, onError)
+    }
+
+    /** 获取TOP10预测结果 */
+    fun fetchTop10(onResult: (List<Map<String, Any>>) -> Unit, onError: (String) -> Unit) {
+        request("$AI_API_BASE/top10", { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val top10 = map["top10"] as? List<Map<String, Any>> ?: emptyList()
+                onResult(top10)
+            } catch (e: Exception) { onError(e.message ?: "") }
+        }, onError)
+    }
+
     /**
-     * 从云端AI API获取预测结果（任意基金代码）
+     * 实时预测单只基金
      */
     fun fetchAiPredictionFromApi(
         fundCode: String,

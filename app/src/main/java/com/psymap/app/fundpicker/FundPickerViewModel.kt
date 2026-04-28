@@ -92,10 +92,40 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         loadRealData()
+        // 触发云端全量预测
+        FundApi.triggerUpdate(
+            onResult = { Log.d("FundVM", "触发云端更新: $it") },
+            onError = { Log.w("FundVM", "触发更新失败: $it") }
+        )
+        // 从云端获取TOP10
+        loadCloudTop10()
+        // 云端恢复用户数据
         viewModelScope.launch {
             val pulled = repo.pullFromCloud()
             if (pulled) { _favorites.value = repo.getFavoriteFunds(); refreshPortfolio() }
         }
+    }
+
+    /** 从云端API获取TOP10 */
+    fun loadCloudTop10() {
+        FundApi.fetchTop10(
+            onResult = { top10List ->
+                if (top10List.isNotEmpty()) {
+                    val funds = top10List.mapNotNull { item ->
+                        val code = item["code"] as? String ?: return@mapNotNull null
+                        val name = item["name"] as? String ?: code
+                        val prob = (item["probability"] as? Double)?.toInt() ?: 0
+                        val conf = (item["confidence"] as? Double)?.toInt() ?: 0
+                        Fund(code = code, name = name, aiScore = prob)
+                    }
+                    if (funds.isNotEmpty()) {
+                        _topFunds.value = funds
+                        Log.d("FundVM", "云端TOP10已加载: ${funds.size}只")
+                    }
+                }
+            },
+            onError = { Log.w("FundVM", "获取TOP10失败: $it") }
+        )
     }
 
     // ==================== 数据加载 ====================
