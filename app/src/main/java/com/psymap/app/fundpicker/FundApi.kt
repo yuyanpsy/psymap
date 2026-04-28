@@ -270,32 +270,31 @@ object FundApi {
         }, onError)
     }
 
-    // ==================== 基金搜索 ====================
-    /**
-     * 通过东方财富搜索接口搜索基金
-     * 支持名称和代码模糊搜索
-     */
+    // ==================== 基金搜索（精确搜索任意基金） ====================
     fun searchFund(
         keyword: String,
         onResult: (List<FundRankItem>) -> Unit,
         onError: (String) -> Unit
     ) {
-        // 用排行接口搜索，关键词作为过滤
-        val url = "https://fund.eastmoney.com/data/rankhandler.aspx" +
-                "?op=ph&dt=kf&ft=all&rs=&gs=0&sc=zzf&st=desc" +
-                "&sd=2025-01-01&ed=2026-12-31&qdii=&tabSubtype=,,,,,&pi=1&pn=200&dx=1" +
-                "&kw=$keyword&v=${System.currentTimeMillis()}"
-        val req = Request.Builder().url(url)
-            .addHeader("Referer", "https://fund.eastmoney.com/data/fundranking.html").build()
-        client.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { onError("搜索失败: ${e.message}") }
-            override fun onResponse(call: Call, response: Response) {
-                try {
-                    val body = response.body?.string() ?: ""
-                    onResult(parseFundRankData(body))
-                } catch (e: Exception) { onError("解析失败: ${e.message}") }
-            }
-        })
+        val url = "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?callback=&m=1&key=$keyword"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val datas = map["Datas"] as? List<Map<String, Any>> ?: emptyList()
+                val results = datas.mapNotNull { item ->
+                    val code = item["CODE"] as? String ?: return@mapNotNull null
+                    val name = item["NAME"] as? String ?: return@mapNotNull null
+                    @Suppress("UNCHECKED_CAST")
+                    val baseInfo = item["FundBaseInfo"] as? Map<String, Any>
+                    val nav = (baseInfo?.get("DWJZ") as? Double) ?: 0.0
+                    val ftype = (baseInfo?.get("FTYPE") as? String) ?: ""
+                    FundRankItem(code = code, name = name, type = ftype, nav = nav)
+                }
+                onResult(results)
+            } catch (e: Exception) { onError("搜索解析失败: ${e.message}") }
+        }, onError)
     }
 
     // ==================== 基金详情 ====================

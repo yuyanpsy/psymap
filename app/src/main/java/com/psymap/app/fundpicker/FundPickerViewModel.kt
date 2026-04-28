@@ -169,12 +169,14 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
             _funds.value = repo.getCachedFunds().map { applyRealScore(it) }
             return
         }
+        // 先搜本地缓存
         val local = repo.searchFunds(query).map { applyRealScore(it) }
         _funds.value = local
-        if (local.size < 3 && query.length >= 2) {
+        // 始终发起在线搜索（精确匹配基金代码/名称）
+        if (query.length >= 2) {
             repo.searchFundsOnline(query,
                 onResult = { online ->
-                    val merged = (local + online.map { applyRealScore(it) }).distinctBy { it.code }
+                    val merged = (online.map { applyRealScore(it) } + local).distinctBy { it.code }
                     _funds.value = merged
                 },
                 onError = { }
