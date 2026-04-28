@@ -137,9 +137,8 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                                     Text("%.4f".format(fund.nav), fontSize = 14.sp)
                                     Text("净值", fontSize = 11.sp, color = FundTextSecondary) }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    val realScore = fund.aiScore
-                                    if (realScore < 70) {
-                                        Text("${realScore}%", fontSize = 14.sp, color = FundBlue, fontWeight = FontWeight.Medium)
+                                    if (fund.aiScore > 0) {
+                                        Text("${fund.aiScore}%", fontSize = 14.sp, color = FundBlue, fontWeight = FontWeight.Medium)
                                         Text("AI预测", fontSize = 11.sp, color = FundTextSecondary)
                                     } else {
                                         Text("--", fontSize = 14.sp, color = FundTextSecondary)
