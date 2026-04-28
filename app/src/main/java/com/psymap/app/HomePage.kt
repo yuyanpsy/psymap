@@ -483,7 +483,7 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                 var day = 1
                 for (week in 0..5) {
                     if (day > daysInMonth) break
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         for (dow in 0..6) {
                             if ((week == 0 && dow < firstDayOfWeek) || day > daysInMonth) {
                                 Box(Modifier.size(38.dp))

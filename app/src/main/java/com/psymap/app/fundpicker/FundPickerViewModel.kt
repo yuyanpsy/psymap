@@ -149,15 +149,14 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
                             if (s >= 0) f.copy(aiScore = s) else f.copy(aiScore = 0)
                         }
                         _funds.value = updated
-                        _topFunds.value = updated.filter { it.aiScore > 0 }
-                            .sortedByDescending { it.aiScore }.take(10)
                         _favorites.value = repo.getFavoriteFunds()
-                        Log.d("FundVM", "AI预测已更新TOP10")
+                        // 不设置TOP10，让云端/top10的结果生效
+                        // 再次调用云端TOP10确保覆盖
+                        loadCloudTop10()
                     },
                     onError = {
-                        // 没有AI预测，用统计评分
-                        _topFunds.value = funds.sortedByDescending { it.aiScore }.take(10)
                         _favorites.value = repo.getFavoriteFunds()
+                        loadCloudTop10()
                     }
                 )
             },
