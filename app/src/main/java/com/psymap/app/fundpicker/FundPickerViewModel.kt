@@ -95,11 +95,25 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
         // 触发云端全量预测
         FundApi.triggerUpdate(
             onResult = { Log.d("FundVM", "触发云端更新: $it") },
-            onError = { Log.w("FundVM", "触发更新失败: $it") }
+            onError = { }
         )
-        // 从云端获取TOP10
-        loadCloudTop10()
-        // 云端恢复用户数据
+        // 从云端获取TOP10（有延迟，先用predictions.json兜底）
+        repo.loadAiPredictions(
+            onResult = {
+                // 先用predictions.json的数据作为兜底TOP10
+                val allPreds = repo.getAllPredictionScores()
+                val fallback = allPreds.entries
+                    .sortedByDescending { it.value }
+                    .take(10)
+                    .map { (code, score) -> Fund(code = code, name = code, aiScore = score) }
+                if (fallback.isNotEmpty() && _topFunds.value.isEmpty()) {
+                    _topFunds.value = fallback
+                }
+                // 然后尝试云端TOP10覆盖
+                loadCloudTop10()
+            },
+            onError = { loadCloudTop10() }
+        )
         viewModelScope.launch {
             val pulled = repo.pullFromCloud()
             if (pulled) { _favorites.value = repo.getFavoriteFunds(); refreshPortfolio() }

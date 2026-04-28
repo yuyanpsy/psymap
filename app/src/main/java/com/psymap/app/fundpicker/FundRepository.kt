@@ -276,6 +276,16 @@ class FundRepository(context: Context) {
         return (pred["probability"] as? Double)?.toInt() ?: -1
     }
 
+    /** 获取所有基金的预测评分 */
+    fun getAllPredictionScores(): Map<String, Int> {
+        return aiPredictions.mapNotNull { (code, horizons) ->
+            @Suppress("UNCHECKED_CAST")
+            val pred30d = horizons["30d"] as? Map<String, Any> ?: return@mapNotNull null
+            val prob = (pred30d["probability"] as? Double)?.toInt() ?: return@mapNotNull null
+            code to prob
+        }.toMap()
+    }
+
     /** 获取基金详情（规模、经理、持仓、费率等） */
     fun fetchFundDetail(
         fundCode: String,
