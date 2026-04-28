@@ -92,27 +92,23 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         loadRealData()
-        // 加载AI预测结果
+        // 加载AI预测结果（真实模型）
         repo.loadAiPredictions(
             onResult = {
-                // 用真实AI评分更新基金列表
+                // 只用真实模型评分，没有的设为0
                 val updated = _funds.value.map { fund ->
                     val realScore = repo.getRealAiScore(fund.code)
-                    if (realScore >= 0) fund.copy(aiScore = realScore) else fund
+                    if (realScore >= 0) fund.copy(aiScore = realScore) else fund.copy(aiScore = 0)
                 }
                 _funds.value = updated
-                _topFunds.value = updated.sortedByDescending { it.aiScore }.take(10)
-                Log.d("FundVM", "AI预测结果已加载并更新评分")
+                // TOP10只显示有真实预测的基金
+                _topFunds.value = updated.filter { it.aiScore > 0 }.sortedByDescending { it.aiScore }.take(10)
             },
-            onError = { Log.w("FundVM", "加载AI预测失败，使用统计评分") }
+            onError = { }
         )
-        // 云端恢复
         viewModelScope.launch {
             val pulled = repo.pullFromCloud()
-            if (pulled) {
-                _favorites.value = repo.getFavoriteFunds()
-                refreshPortfolio()
-            }
+            if (pulled) { _favorites.value = repo.getFavoriteFunds(); refreshPortfolio() }
         }
     }
 
@@ -186,7 +182,7 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applyRealScore(fund: Fund): Fund {
         val realScore = repo.getRealAiScore(fund.code)
-        return if (realScore >= 0) fund.copy(aiScore = realScore) else fund
+        return if (realScore >= 0) fund.copy(aiScore = realScore) else fund.copy(aiScore = 0)
     }
 
     // ==================== 基金详情 ====================
