@@ -811,17 +811,23 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
                 // AI 结构化
                 _loadingMessage.value = "正在分析题目结构..."
-                val prompt = """将以下OCR文字整理为题目JSON数组。规则：
-- question: 题目内容（不含选项和题号）
-- answer: 答案，必须保留markdown格式：
-  · 用编号列表（1. 2. 3.）分点，每个要点独占一行（用\n换行）
-  · 重要概念/关键词用**加粗**标记
-  · 每个要点的小标题加粗，如"**1. 遗传是人格发展的先天基础**\n遗传基因决定..."
-  · 选择题答案只填字母
-  · 无答案填""
+                val prompt = """将以下OCR文字整理为题目JSON数组。
+
+核心原则——正确区分"题目"和"答案"：
+- 题目以主题号开头：如"1."、"4."、"12."或"一、"、"二、"
+- 题目之后的所有内容都是该题的答案，直到遇到下一个主题号
+- 答案中的子编号如(1)(2)(3)、①②③是答案要点，不是新题目！
+- 一道题的答案可能有多段多个要点，全部归入同一道题的answer
+
+举例："4. 成就目标理论  德维克区分了两种能力内隐观：(1) 能力实体观... (2) 能力增长观..."
+→ 1道题，question="成就目标理论"，answer包含全部(1)(2)内容
+
+字段：
+- question: 题目（去掉题号，不含答案）
+- answer: 完整答案，markdown格式（**加粗**关键词，\n换行）。选择题只填字母。无答案填""
 - options: 选择题选项数组，非选择题填[]
 - type: single_choice/multi_choice/short_answer/essay/case_analysis
-- explanation: 解析（保留格式，无则""）
+- explanation: 解析（无则""）
 - chapter: 章节名（无则""）
 只返回JSON数组，不要代码块包裹。"""
 

@@ -214,26 +214,30 @@ object AiService {
                 val prompt = """你是考研试卷题目解析专家。以下是从试卷/教材图片中OCR识别出的原始文字。
 请将这些文字整理为结构化的题目列表。
 
-重要规则：
-1. 仔细识别文档结构：章节标题（如"第一章 xxx"）、题型分类（如"一、选择题"、"二、简答题"、"三、论述题"）
-2. 每道题必须包含以下字段：
-   - "question": 完整题目内容（不含选项、不含题号）
-   - "answer": 参考答案，必须保留markdown格式：
-     · 用编号（1. 2. 3.）分点，每个要点用\n换行
-     · 重要概念和关键词用**加粗**
-     · 每个要点的小标题加粗，如"**1. 遗传是人格发展的先天基础**\n遗传基因决定..."
-     · 选择题答案只保留字母（如"A"）
-     · 无答案填空字符串
-   - "options": 选择题选项数组，非选择题填空数组[]
-   - "type": single_choice/multi_choice/short_answer/essay/case_analysis/comprehensive
-   - "explanation": 解析内容（保留格式，没有则填空字符串）
-   - "chapter": 所属章节名称（没有则填空字符串）
+核心原则——正确区分"题目"和"答案"：
+- 题目以主题号开头：阿拉伯数字如"1."、"4."、"12."，或中文如"一、"、"二、"
+- 题目之后的所有内容都是该题的答案，直到遇到下一个主题号
+- 答案中的子编号如(1)(2)(3)、①②③、a.b.c.是答案的要点，不是新题目！
+- 一道论述题/简答题的答案通常有多段多个要点，全部归入同一道题的answer字段
 
-3. 题型判断：有A/B/C/D选项→选择题，标注简答→short_answer，标注论述→essay
-4. 严格基于OCR文字，不要编造内容。使用中文简体。
+举例说明：
+原文："4. 成就目标理论☆☆☆  德维克区分了人的两种能力内隐观：(1) 能力实体观：能力是固定的... (2) 能力增长观：能力是不稳定的..."
+正确解析→ 1道题：question="成就目标理论"，answer="德维克区分了...\n\n**(1) 能力实体观**：能力是固定的...\n\n**(2) 能力增长观**：能力是不稳定的..."
+错误解析→ 拆成3道题（绝对不要这样做！）
 
-只返回纯JSON数组，不要用markdown代码块包裹：
-[{"question":"题目","answer":"**1. 要点一**\n内容...\n\n**2. 要点二**\n内容...","options":[],"type":"essay","explanation":"","chapter":""}]"""
+字段要求：
+- "question": 题目内容（去掉题号和星号标记，不含答案部分）
+- "answer": 完整答案，保留markdown格式（**加粗**关键词，\n换行分点）。选择题只填字母。无答案填""
+- "options": 选择题选项数组，非选择题填[]
+- "type": single_choice/multi_choice/short_answer/essay/case_analysis/comprehensive
+- "explanation": 解析（没有填""）
+- "chapter": 章节名（没有填""）
+
+题型判断：有ABCD选项→选择题；内容短(1-3句)→short_answer；内容长有多要点→essay
+严格基于OCR文字，不编造。使用中文简体。
+
+只返回纯JSON数组：
+[{"question":"题目","answer":"答案内容","options":[],"type":"essay","explanation":"","chapter":""}]"""
 
                 chatCompletion(prompt, "OCR原始文字：\n$ocrText", { aiResult ->
                     Log.d("PsyMap-OCR", "AI结构化结果(前500字): ${aiResult.take(500)}")

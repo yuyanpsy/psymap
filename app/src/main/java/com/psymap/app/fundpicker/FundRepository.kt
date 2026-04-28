@@ -211,7 +211,37 @@ class FundRepository(context: Context) {
 
     fun getFundByCode(code: String): Fund? = getCachedFunds().find { it.code == code }
 
-    // ==================== AI预测（模拟，后续接入真实模型） ====================
+    // ==================== AI预测（真实模型结果） ====================
+
+    private var aiPredictions: Map<String, Map<String, Any>> = emptyMap()
+
+    /** 加载AI预测结果 */
+    fun loadAiPredictions(
+        onResult: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FundApi.fetchAiPredictions(
+            onResult = { predictions ->
+                aiPredictions = predictions
+                Log.d(TAG, "加载AI预测: ${predictions.size}只基金")
+                mainHandler.post { onResult() }
+            },
+            onError = { err -> mainHandler.post { onError(err) } }
+        )
+    }
+
+    /** 获取单只基金的AI预测 */
+    fun getAiPrediction(fundCode: String, horizon: String = "30d"): Map<String, Any>? {
+        val fundPred = aiPredictions[fundCode] ?: return null
+        @Suppress("UNCHECKED_CAST")
+        return fundPred[horizon] as? Map<String, Any>
+    }
+
+    /** 获取基金的AI评分（使用真实模型结果） */
+    fun getRealAiScore(fundCode: String): Int {
+        val pred = getAiPrediction(fundCode, "30d") ?: return -1
+        return (pred["probability"] as? Double)?.toInt() ?: -1
+    }
 
     /** 获取基金详情（规模、经理、持仓、费率等） */
     fun fetchFundDetail(
@@ -238,8 +268,36 @@ class FundRepository(context: Context) {
     }
 
     fun getPrediction(fundCode: String, period: TimePeriod): AiPrediction {
+        // 优先使用真实模型预测结果
+        val horizonKey = when (period) {
+            TimePeriod.D7 -> "7d"
+            TimePeriod.D30 -> "30d"
+            TimePeriod.M3, TimePeriod.M6, TimePeriod.Y1 -> "90d"
+            else -> "30d"
+        }
+        val realPred = getAiPrediction(fundCode, horizonKey)
+        if (realPred != null) {
+            val prob = (realPred["probability"] as? Double)?.toInt() ?: 50
+            val conf = (realPred["confidence"] as? Double)?.toInt() ?: 3
+            @Suppress("UNCHECKED_CAST")
+            val rawFactors = realPred["factors"] as? List<Map<String, String>> ?: emptyList()
+            val factors = rawFactors.map { f ->
+                PredictionFactor(
+                    name = f["name"] ?: "",
+                    signal = f["value"] ?: "",
+                    direction = f["direction"] ?: "neutral"
+                )
+            }
+            return AiPrediction(
+                probability = prob, confidence = conf, period = horizonKey,
+                factors = factors,
+                modelName = "GradientBoosting + RandomForest (已训练)",
+                updatedAt = "模型训练于 2026-04-28"
+            )
+        }
+
+        // 降级：使用统计公式
         val fund = getFundByCode(fundCode)
-        // 基于真实涨跌数据生成伪预测
         val recentChange = fund?.monthChange ?: 0.0
         val baseProbability = (50 + recentChange * 2).toInt().coerceIn(20, 95)
         val adjustment = when (period) {

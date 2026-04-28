@@ -92,13 +92,26 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         loadRealData()
-        // 启动时尝试从云端恢复数据
+        // 加载AI预测结果
+        repo.loadAiPredictions(
+            onResult = {
+                // 用真实AI评分更新基金列表
+                val updated = _funds.value.map { fund ->
+                    val realScore = repo.getRealAiScore(fund.code)
+                    if (realScore >= 0) fund.copy(aiScore = realScore) else fund
+                }
+                _funds.value = updated
+                _topFunds.value = updated.sortedByDescending { it.aiScore }.take(10)
+                Log.d("FundVM", "AI预测结果已加载并更新评分")
+            },
+            onError = { Log.w("FundVM", "加载AI预测失败，使用统计评分") }
+        )
+        // 云端恢复
         viewModelScope.launch {
             val pulled = repo.pullFromCloud()
             if (pulled) {
                 _favorites.value = repo.getFavoriteFunds()
                 refreshPortfolio()
-                Log.d("FundVM", "云端数据已恢复")
             }
         }
     }

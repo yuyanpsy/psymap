@@ -225,7 +225,30 @@ object FundApi {
         }, onError)
     }
 
-    // ==================== 基金搜索（实时联想） ====================
+    // ==================== AI预测结果（从训练模型导出的JSON） ====================
+    /**
+     * 从GitHub Pages获取批量预测结果
+     */
+    fun fetchAiPredictions(
+        onResult: (Map<String, Map<String, Any>>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val url = "https://raw.githubusercontent.com/yuyanpsy/psymap/main/docs/predictions.json"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val predictions = map["predictions"] as? Map<String, Map<String, Any>> ?: emptyMap()
+                onResult(predictions)
+            } catch (e: Exception) {
+                Log.e(TAG, "解析预测数据失败", e)
+                onError("解析失败: ${e.message}")
+            }
+        }, onError)
+    }
+
+    // ==================== 基金搜索 ====================
     /**
      * 通过东方财富搜索接口搜索基金
      * 支持名称和代码模糊搜索
