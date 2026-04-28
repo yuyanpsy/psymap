@@ -468,3 +468,112 @@ com.psymap.app.fundpicker/
 ├── AiLabPage.kt           # AI实验室（算法对比+参数调节+回测）
 └── FundProfilePage.kt     # 我的（设置+免责声明）
 ```
+
+### 15.6 AI预测后端（Python）
+
+#### 15.6.1 架构
+
+```
+Mac本地训练 → 模型文件上传到GitHub → Render云端部署
+                                        ↓
+cron-job.org 每天16:35触发 → Render采集500只基金净值 → 模型预测 → 存Supabase
+                                        ↓
+Android App → /top10 获取TOP10 → /predict/{code} 实时预测任意基金
+```
+
+#### 15.6.2 模型训练
+
+- 训练数据：200只基金×3年净值数据（26万+样本）
+- 特征工程：38个技术指标（均线/RSI/MACD/布林带/波动率/动量/回撤等）
+- 模型：GradientBoostingClassifier + RandomForestClassifier
+- 验证：Walk-Forward 5折时序交叉验证
+- 预测周期：7天/30天/90天三个模型
+
+#### 15.6.3 模型效果
+
+| 周期 | GB AUC | GB 准确率 | RF AUC | RF 准确率 |
+|------|--------|----------|--------|----------|
+| 7天  | 0.6528 | 60.48%   | 0.6339 | 58.82%   |
+| 30天 | 0.6703 | 62.27%   | 0.6495 | 60.40%   |
+| 90天 | 0.6961 | 63.58%   | 0.6619 | 60.99%   |
+
+Top特征：60日波动率、20日波动率、RSI(28)、均线偏离度、布林带宽度
+
+#### 15.6.4 云端部署
+
+- 平台：Render.com（免费方案，512MB内存）
+- API地址：https://fundpicker-api.onrender.com
+- 代码仓库：https://github.com/yuyanpsy/fundpicker-api
+- 定时任务：cron-job.org 每天16:35触发全量预测
+- 持久化：Supabase fund_predictions表（Render休眠后自动恢复）
+
+#### 15.6.5 API接口
+
+| 接口 | 说明 |
+|------|------|
+| GET /trigger-update | 触发后台500只基金批量预测（异步） |
+| GET /top10 | 获取预测概率最高的TOP10基金 |
+| GET /predict/{code}?horizon=30 | 实时预测任意基金（自动获取数据） |
+| GET /predict/{code}/all | 预测所有周期（7/30/90天） |
+| GET /health | 健康检查 |
+
+#### 15.6.6 数据流
+
+```
+每天16:35 → cron-job.org触发 /trigger-update
+  → Render后台线程开始
+  → 获取排行榜前500只基金代码
+  → 逐只获取净值数据（pingzhongdata接口）
+  → 计算38个技术指标特征
+  → GradientBoosting + RandomForest预测
+  → 每50只更新一次TOP10缓存
+  → 全部完成后存到Supabase
+  → 心跳保活（16:00-18:00每5分钟ping /top10）
+
+用户打开App
+  → 调用 /trigger-update（如果24小时内已更新则跳过）
+  → 调用 /top10 获取TOP10显示在首页
+  → 用户搜索基金 → 调用 /predict/{code} 实时预测
+  → 用户进入详情页 → 调用 /predict/{code} 获取预测+因子
+```
+
+### 15.7 数据持久化
+
+| 数据 | 存储位置 | 说明 |
+|------|---------|------|
+| 自选基金 | SharedPreferences + Supabase | 本地+云端双写 |
+| 模拟持仓 | SharedPreferences + Supabase | 本地+云端双写 |
+| 交易记录 | SharedPreferences + Supabase | 本地+云端双写 |
+| 用户偏好 | SharedPreferences + Supabase | 风险偏好/默认周期 |
+| AI预测结果 | Supabase fund_predictions表 | Render预测后存入 |
+| 基金净值缓存 | Render内存 + 本地文件 | 每次预测时采集 |
+
+### 15.8 后端代码结构
+
+```
+FundPicker/backend/
+├── app/
+│   ├── api_server.py          # FastAPI服务（/trigger-update, /top10, /predict）
+│   ├── data_collector.py      # 数据采集（东方财富pingzhongdata接口）
+│   ├── feature_engineering.py # 38个技术指标特征工程
+│   ├── model_trainer.py       # GB+RF模型训练（Walk-Forward验证）
+│   ├── batch_predict.py       # 批量预测导出JSON
+│   ├── smart_collector.py     # 智能采集（按夏普/回撤筛选）
+│   └── supabase_store.py      # Supabase持久化读写
+├── models/                    # 训练好的模型文件
+│   ├── model_7d/              # 7天预测模型
+│   ├── model_30d/             # 30天预测模型
+│   └── model_90d/             # 90天预测模型
+├── data/nav/                  # 基金净值数据（200只×CSV）
+├── requirements.txt
+├── Dockerfile
+└── render.yaml
+```
+
+### 15.9 待开发功能
+
+- [ ] 行业板块分类（新浪财经申万行业分类）
+- [ ] 板块详情页（点击板块→显示该板块下的基金列表）
+- [ ] 扩大训练数据（分层抽样，覆盖涨跌各类基金）
+- [ ] 持仓AI预警（持仓基金趋势变化时推送通知）
+- [ ] 深度学习模型（LSTM/Transformer，需要更大算力）
