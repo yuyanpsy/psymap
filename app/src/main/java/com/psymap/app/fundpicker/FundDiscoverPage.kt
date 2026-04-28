@@ -104,9 +104,14 @@ fun FundDiscoverPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
             Text("共${sortedFunds.size}只", fontSize = 11.sp, color = FundTextSecondary)
         }
         Spacer(Modifier.height(4.dp))
-        if (isLoading && funds.isEmpty()) {
+        if (isLoading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = FundBlue)
+            Text("正在获取AI预测评分...", fontSize = 12.sp, color = FundBlue,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+        }
+        if (!isLoading && funds.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = FundBlue)
+                Text("搜索基金代码或名称", fontSize = 14.sp, color = FundTextSecondary)
             }
         } else {
             val pChange: (Fund) -> Double = { f -> when (selectedPeriod) {

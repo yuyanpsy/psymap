@@ -476,17 +476,17 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     listOf("日","一","二","三","四","五","六").forEach {
-                        Text(it, fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.width(32.dp))
+                        Text(it, fontSize = 13.sp, color = Color.Gray, textAlign = TextAlign.Center, modifier = Modifier.width(40.dp))
                     }
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 var day = 1
                 for (week in 0..5) {
                     if (day > daysInMonth) break
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         for (dow in 0..6) {
                             if ((week == 0 && dow < firstDayOfWeek) || day > daysInMonth) {
-                                Box(Modifier.size(32.dp))
+                                Box(Modifier.size(38.dp))
                             } else {
                                 val dateStr = String.format("%04d-%02d-%02d", displayYear, displayMonth + 1, day)
                                 val dayRecord = vm.checkInRecords.find { it.date == dateStr }
@@ -500,11 +500,11 @@ fun CheckInCalendarDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
                                     isPast -> Color(0xFFEEEEEE)
                                     else -> Color.Transparent
                                 }
-                                Box(modifier = Modifier.size(32.dp)
+                                Box(modifier = Modifier.size(38.dp)
                                     .background(bgColor, CircleShape)
                                     .then(if (isToday) Modifier.border(2.dp, Color(0xFFEF6C00), CircleShape) else Modifier),
                                     contentAlignment = Alignment.Center) {
-                                    Text("$day", fontSize = 12.sp,
+                                    Text("$day", fontSize = 13.sp,
                                         color = if (isChecked || hasActivity) Color.White else Color.Black,
                                         fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal)
                                 }
