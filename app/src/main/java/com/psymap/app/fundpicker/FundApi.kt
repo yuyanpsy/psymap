@@ -225,7 +225,29 @@ object FundApi {
         }, onError)
     }
 
-    // ==================== AI预测结果（从训练模型导出的JSON） ====================
+    // ==================== AI预测API（Render云端） ====================
+    private const val AI_API_BASE = "https://fundpicker-api.onrender.com"
+
+    /**
+     * 从云端AI API获取预测结果（任意基金代码）
+     */
+    fun fetchAiPredictionFromApi(
+        fundCode: String,
+        horizon: Int = 30,
+        onResult: (Map<String, Any>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val url = "$AI_API_BASE/predict/$fundCode?horizon=$horizon"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                onResult(map)
+            } catch (e: Exception) { onError("解析失败: ${e.message}") }
+        }, onError)
+    }
+
+    // ==================== AI预测结果（从GitHub JSON） ====================
     /**
      * 从GitHub Pages获取批量预测结果
      */

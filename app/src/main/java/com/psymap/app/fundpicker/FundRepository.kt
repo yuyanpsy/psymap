@@ -211,6 +211,39 @@ class FundRepository(context: Context) {
 
     fun getFundByCode(code: String): Fund? = getCachedFunds().find { it.code == code }
 
+    /** 从云端API获取实时AI预测（任意基金） */
+    fun fetchCloudPrediction(
+        fundCode: String,
+        horizon: Int = 30,
+        onResult: (AiPrediction) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FundApi.fetchAiPredictionFromApi(fundCode, horizon,
+            onResult = { map ->
+                try {
+                    val prob = (map["probability"] as? Double)?.toInt() ?: 50
+                    val conf = (map["confidence"] as? Double)?.toInt() ?: 3
+                    @Suppress("UNCHECKED_CAST")
+                    val scores = map["model_scores"] as? Map<String, Double> ?: emptyMap()
+                    @Suppress("UNCHECKED_CAST")
+                    val rawFactors = map["factors"] as? List<Map<String, String>> ?: emptyList()
+                    val factors = rawFactors.map { f ->
+                        PredictionFactor(f["name"] ?: "", f["value"] ?: "", f["direction"] ?: "neutral")
+                    }
+                    val pred = AiPrediction(
+                        probability = prob, confidence = conf, period = "${horizon}d",
+                        factors = factors,
+                        modelName = "GB(%.1f%%) + RF(%.1f%%) 云端实时".format(
+                            scores["gradient_boosting"] ?: 0.0, scores["random_forest"] ?: 0.0),
+                        updatedAt = "实时预测"
+                    )
+                    mainHandler.post { onResult(pred) }
+                } catch (e: Exception) { mainHandler.post { onError("解析失败") } }
+            },
+            onError = { err -> mainHandler.post { onError(err) } }
+        )
+    }
+
     // ==================== AI预测（真实模型结果） ====================
 
     private var aiPredictions: Map<String, Map<String, Any>> = emptyMap()

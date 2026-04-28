@@ -247,7 +247,17 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun loadPrediction() {
         val fund = _selectedFund.value ?: return
-        _prediction.value = repo.getPrediction(fund.code, _predictionPeriod.value)
+        // 优先使用云端API实时预测
+        val horizon = when (_predictionPeriod.value) {
+            TimePeriod.D7 -> 7; TimePeriod.M3, TimePeriod.M6, TimePeriod.Y1 -> 90; else -> 30
+        }
+        repo.fetchCloudPrediction(fund.code, horizon,
+            onResult = { pred -> _prediction.value = pred },
+            onError = {
+                // 降级到本地预测
+                _prediction.value = repo.getPrediction(fund.code, _predictionPeriod.value)
+            }
+        )
     }
 
     // ==================== 自选 ====================
