@@ -87,6 +87,30 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
     private val _sectors = MutableStateFlow<List<SectorItem>>(emptyList())
     val sectors = _sectors.asStateFlow()
 
+    // 板块详情（含资金流向）
+    private val _sectorDetails = MutableStateFlow<List<SectorDetail>>(emptyList())
+    val sectorDetails = _sectorDetails.asStateFlow()
+
+    // 板块排序方式
+    private val _sectorSortType = MutableStateFlow(SectorSortType.CHANGE)
+    val sectorSortType = _sectorSortType.asStateFlow()
+
+    // 板块时间维度
+    private val _sectorTimePeriod = MutableStateFlow(SectorTimePeriod.D1)
+    val sectorTimePeriod = _sectorTimePeriod.asStateFlow()
+
+    // 当前选中板块
+    private val _selectedSector = MutableStateFlow<SectorDetail?>(null)
+    val selectedSector = _selectedSector.asStateFlow()
+
+    // 板块关联基金
+    private val _sectorFunds = MutableStateFlow<List<SectorFund>>(emptyList())
+    val sectorFunds = _sectorFunds.asStateFlow()
+
+    // 板块基金加载中
+    private val _sectorFundsLoading = MutableStateFlow(false)
+    val sectorFundsLoading = _sectorFundsLoading.asStateFlow()
+
     private val _backtestResults = MutableStateFlow<List<BacktestResult>>(emptyList())
     val backtestResults = _backtestResults.asStateFlow()
 
@@ -195,6 +219,9 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
             onResult = { items -> _sectors.value = items },
             onError = { }
         )
+
+        // 加载板块详情（含资金流向）
+        loadSectorDetails()
     }
 
     // ==================== 搜索 ====================
@@ -346,6 +373,49 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
                        wSentiment: Float = 0.15f, wTransformer: Float = 0.15f, wArima: Float = 0.1f) {
         _compareResults.value = repo.compareModels(fundCode, period, lstmWindow, wLstm, wLgbm, wSentiment, wTransformer, wArima)
         _backtestResults.value = repo.getBacktestResults(fundCode, period)
+    }
+
+    // ==================== 行业板块 ====================
+
+    fun loadSectorDetails() {
+        val sortField = when (_sectorSortType.value) {
+            SectorSortType.CHANGE -> "f3"
+            SectorSortType.CAPITAL -> "f62"
+        }
+        repo.fetchSectorDetails(sortField, _sectorTimePeriod.value.param,
+            onResult = { items -> _sectorDetails.value = items },
+            onError = { }
+        )
+    }
+
+    fun setSectorSortType(type: SectorSortType) {
+        _sectorSortType.value = type
+        loadSectorDetails()
+    }
+
+    fun setSectorTimePeriod(period: SectorTimePeriod) {
+        _sectorTimePeriod.value = period
+        loadSectorDetails()
+    }
+
+    fun selectSector(sector: SectorDetail) {
+        _selectedSector.value = sector
+        _sectorFunds.value = emptyList()
+        _sectorFundsLoading.value = true
+        repo.fetchSectorFunds(sector.name,
+            onResult = { funds ->
+                _sectorFunds.value = funds
+                _sectorFundsLoading.value = false
+            },
+            onError = {
+                _sectorFundsLoading.value = false
+            }
+        )
+    }
+
+    fun clearSelectedSector() {
+        _selectedSector.value = null
+        _sectorFunds.value = emptyList()
     }
 
     // ==================== 刷新 ====================

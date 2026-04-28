@@ -225,6 +225,109 @@ object FundApi {
         }, onError)
     }
 
+    // ==================== 板块详情（含资金流向） ====================
+    fun fetchSectorDetail(
+        pageSize: Int = 50,
+        sortField: String = "f3",  // f3=涨幅 f62=主力净流入
+        period: String = "1",      // 1=1日 5=5日 20=20日
+        onResult: (List<SectorDetail>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        // 根据时间维度选择不同的排序字段
+        val fid = if (period == "1") sortField else "f${if (sortField == "f62") 267 else 3}"
+        val fields = when (period) {
+            "5" -> "f2,f3,f12,f14,f62,f184,f66,f69,f72,f75,f78,f164,f174"
+            "20" -> "f2,f3,f12,f14,f62,f184,f66,f69,f72,f75,f78,f164,f174"
+            else -> "f2,f3,f12,f14,f62,f184,f66,f69,f72,f75,f78"
+        }
+        val url = "https://push2.eastmoney.com/api/qt/clist/get" +
+                "?pn=1&pz=$pageSize&po=1&np=1&fltt=2&invt=2&fid=$fid&fs=m:90+t:3" +
+                "&fields=$fields"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val data = map["data"] as? Map<String, Any>
+                @Suppress("UNCHECKED_CAST")
+                val diff = data?.get("diff") as? List<Map<String, Any>>
+                val sectors = diff?.map { item ->
+                    SectorDetail(
+                        name = (item["f14"] as? String) ?: "",
+                        code = (item["f12"] as? String) ?: "",
+                        changePct = (item["f3"] as? Double) ?: 0.0,
+                        mainNetInflow = ((item["f62"] as? Double) ?: 0.0) / 100000000.0, // 转亿
+                        price = (item["f2"] as? Double) ?: 0.0,
+                        turnoverRate = (item["f184"] as? Double) ?: 0.0
+                    )
+                } ?: emptyList()
+                onResult(sectors)
+            } catch (e: Exception) { onError("解析板块详情失败: ${e.message}") }
+        }, onError)
+    }
+
+    // ==================== 板块关联基金 ====================
+    /**
+     * 获取某板块的相关基金
+     * 通过东方财富板块关联基金接口
+     */
+    fun fetchSectorFunds(
+        sectorName: String,
+        onResult: (List<SectorFund>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        // 使用基金搜索接口，搜索板块名称相关的基金
+        val url = "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?callback=&m=1&key=$sectorName"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val datas = map["Datas"] as? List<Map<String, Any>> ?: emptyList()
+                val funds = datas.mapNotNull { item ->
+                    val code = item["CODE"] as? String ?: return@mapNotNull null
+                    val name = item["NAME"] as? String ?: return@mapNotNull null
+                    @Suppress("UNCHECKED_CAST")
+                    val baseInfo = item["FundBaseInfo"] as? Map<String, Any>
+                    val nav = (baseInfo?.get("DWJZ") as? Double) ?: 0.0
+                    val dayChange = (baseInfo?.get("RZDF") as? Double) ?: 0.0
+                    SectorFund(
+                        fundCode = code,
+                        fundName = name,
+                        nav = nav,
+                        dayChange = dayChange
+                    )
+                }
+                onResult(funds)
+            } catch (e: Exception) { onError("搜索板块基金失败: ${e.message}") }
+        }, onError)
+    }
+
+    /**
+     * 获取板块关联基金（通过排行榜筛选）
+     * 搜索包含板块关键词的基金
+     */
+    fun fetchSectorRelatedFunds(
+        sectorName: String,
+        pageSize: Int = 30,
+        onResult: (List<SectorFund>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        // 先搜索板块名称相关基金
+        fetchSectorFunds(sectorName,
+            onResult = { funds ->
+                if (funds.isNotEmpty()) {
+                    onResult(funds.take(pageSize))
+                } else {
+                    // 降级：搜索简化关键词
+                    val shortName = sectorName.take(2)
+                    fetchSectorFunds(shortName, onResult = { onResult(it.take(pageSize)) }, onError = onError)
+                }
+            },
+            onError = onError
+        )
+    }
+
     // ==================== AI预测API（Render云端） ====================
     private const val AI_API_BASE = "https://fundpicker-api.onrender.com"
 

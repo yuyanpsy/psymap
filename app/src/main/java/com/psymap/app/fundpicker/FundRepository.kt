@@ -115,6 +115,31 @@ class FundRepository(context: Context) {
         )
     }
 
+    /** 获取板块详情（含资金流向） */
+    fun fetchSectorDetails(
+        sortField: String = "f3",
+        period: String = "1",
+        onResult: (List<SectorDetail>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FundApi.fetchSectorDetail(50, sortField, period,
+            onResult = { items -> mainHandler.post { onResult(items) } },
+            onError = { err -> mainHandler.post { onError(err) } }
+        )
+    }
+
+    /** 获取板块关联基金 */
+    fun fetchSectorFunds(
+        sectorName: String,
+        onResult: (List<SectorFund>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        FundApi.fetchSectorRelatedFunds(sectorName, 30,
+            onResult = { funds -> mainHandler.post { onResult(funds) } },
+            onError = { err -> mainHandler.post { onError(err) } }
+        )
+    }
+
     /**
      * 获取大盘指数（真实数据）
      */

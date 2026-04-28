@@ -577,3 +577,115 @@ FundPicker/backend/
 - [ ] 扩大训练数据（分层抽样，覆盖涨跌各类基金）
 - [ ] 持仓AI预警（持仓基金趋势变化时推送通知）
 - [ ] 深度学习模型（LSTM/Transformer，需要更大算力）
+
+
+### 15.10 外部服务配置指南
+
+#### 15.10.1 Supabase（云数据库）
+
+项目地址：https://supabase.com/dashboard/project/edzsmjegnkrbedqpotgu
+
+已创建的表：
+
+| 表名 | 用途 | 创建方式 |
+|------|------|---------|
+| users | PsyMap用户（微信登录） | 已有 |
+| fund_picker_data | FundPicker用户数据（自选/持仓/偏好） | SQL Editor建表 |
+| fund_predictions | AI预测结果持久化（TOP10+全量预测） | SQL Editor建表 |
+
+建表SQL（fund_picker_data）：
+```sql
+CREATE TABLE IF NOT EXISTS fund_picker_data (
+    user_id UUID PRIMARY KEY REFERENCES users(id),
+    data JSONB DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE fund_picker_data ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage own fund data" ON fund_picker_data
+    FOR ALL USING (true) WITH CHECK (true);
+```
+
+建表SQL（fund_predictions）：
+```sql
+CREATE TABLE IF NOT EXISTS fund_predictions (
+    id TEXT PRIMARY KEY DEFAULT 'latest',
+    top10 JSONB DEFAULT '[]',
+    all_predictions JSONB DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE fund_predictions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read write" ON fund_predictions
+    FOR ALL USING (true) WITH CHECK (true);
+```
+
+操作步骤：登录Supabase → 左侧SQL Editor → 粘贴SQL → Run
+
+#### 15.10.2 Render（云端API服务）
+
+控制台：https://dashboard.render.com
+服务地址：https://fundpicker-api.onrender.com
+代码仓库：https://github.com/yuyanpsy/fundpicker-api
+
+配置参数：
+- Name: fundpicker-api
+- Language: Python 3
+- Branch: main
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `cd app && python api_server.py`
+- Instance Type: Free（$0/月，512MB内存，0.1CPU）
+
+部署步骤：
+1. 登录 https://render.com（GitHub账号授权）
+2. New → Web Service → 选择 fundpicker-api 仓库
+3. 填写上述配置参数
+4. 点 Deploy Web Service
+5. 等待构建完成（约3-5分钟）
+6. 访问 https://fundpicker-api.onrender.com 验证
+
+注意事项：
+- 免费方案15分钟无请求会休眠，首次请求需30-50秒唤醒
+- 休眠后内存数据丢失，通过Supabase恢复
+- 每次push到GitHub会自动重新部署
+- 需要绑定信用卡（验证$1后退回，不实际收费）
+
+更新模型步骤：
+1. Mac上训练新模型：`cd ~/FundPicker/backend/app && python3 model_trainer.py`
+2. 推送到GitHub：`cd ~/FundPicker/backend && git add -A && git commit -m "update models" && git push`
+3. Render自动重新部署
+
+#### 15.10.3 cron-job.org（免费定时任务）
+
+控制台：https://cron-job.org（邮箱注册，免费）
+
+已创建的定时任务：
+
+| 任务名 | URL | Cron表达式 | 说明 |
+|--------|-----|-----------|------|
+| FundPicker 触发预测 | https://fundpicker-api.onrender.com/trigger-update | `35 8 * * 1-5` | 北京时间16:35，周一到周五 |
+| FundPicker 保活 | https://fundpicker-api.onrender.com/top10 | `*/5 8-9 * * 1-5` | 北京时间16:00-17:59，每5分钟 |
+
+注意：cron-job.org使用UTC时间，北京时间减8小时。
+
+创建步骤：
+1. 登录 https://cron-job.org
+2. 点 Create cronjob
+3. 填写Title、URL、Schedule（选Custom填Cron表达式）
+4. 点 Create
+
+工作流程：
+```
+每天16:35 → cron触发 /trigger-update → Render开始后台预测500只基金
+16:00-18:00 → 每5分钟ping /top10 → 保持Render不休眠
+约30-60分钟后 → 预测完成 → 结果存入Supabase
+第二天早上 → 用户打开App → Render从Supabase加载结果 → 首页显示TOP10
+```
+
+手动触发预测（不等定时任务）：
+```bash
+curl https://fundpicker-api.onrender.com/trigger-update
+```
+
+查看预测进度：
+```bash
+curl https://fundpicker-api.onrender.com/top10
+```

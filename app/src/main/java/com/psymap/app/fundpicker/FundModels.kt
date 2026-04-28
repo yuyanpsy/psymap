@@ -131,3 +131,38 @@ data class HotSector(
     val changePct: Double = 0.0,
     val status: String = ""         // "strong" / "warming" / "weak"
 )
+
+/** 板块详细数据（含资金流向） */
+data class SectorDetail(
+    val name: String = "",
+    val code: String = "",
+    val changePct: Double = 0.0,
+    val mainNetInflow: Double = 0.0,   // 主力净流入（亿）
+    val price: Double = 0.0,           // 板块指数
+    val volume: Double = 0.0,          // 成交额（亿）
+    val turnoverRate: Double = 0.0,    // 换手率
+    val leadStock: String = "",        // 领涨股
+    val leadStockPct: Double = 0.0     // 领涨股涨幅
+)
+
+/** 板块关联基金 */
+data class SectorFund(
+    val fundCode: String = "",
+    val fundName: String = "",
+    val sectorWeight: Double = 0.0,    // 占净值比例 %
+    val yearChange: Double = 0.0,      // 近一年涨幅
+    val nav: Double = 0.0,             // 单位净值
+    val dayChange: Double = 0.0,       // 日涨幅
+    val fundScale: String = "",        // 规模
+    val buyRate: String = ""           // 申购费率
+)
+
+/** 行业布局排序方式 */
+enum class SectorSortType(val label: String) {
+    CHANGE("涨幅"), CAPITAL("资金")
+}
+
+/** 行业布局时间维度 */
+enum class SectorTimePeriod(val label: String, val param: String) {
+    D1("1日", "1"), D5("5日", "5"), D20("20日", "20")
+}
