@@ -92,20 +92,6 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         loadRealData()
-        // 加载AI预测结果（真实模型）
-        repo.loadAiPredictions(
-            onResult = {
-                // 只用真实模型评分，没有的设为0
-                val updated = _funds.value.map { fund ->
-                    val realScore = repo.getRealAiScore(fund.code)
-                    if (realScore >= 0) fund.copy(aiScore = realScore) else fund.copy(aiScore = 0)
-                }
-                _funds.value = updated
-                // TOP10只显示有真实预测的基金
-                _topFunds.value = updated.filter { it.aiScore > 0 }.sortedByDescending { it.aiScore }.take(10)
-            },
-            onError = { }
-        )
         viewModelScope.launch {
             val pulled = repo.pullFromCloud()
             if (pulled) { _favorites.value = repo.getFavoriteFunds(); refreshPortfolio() }
@@ -123,16 +109,27 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
             fundType = "all",
             pageSize = 200,
             onResult = { funds ->
-                // 用真实AI评分替换统计评分
-                val updated = funds.map { fund ->
-                    val realScore = repo.getRealAiScore(fund.code)
-                    if (realScore >= 0) fund.copy(aiScore = realScore) else fund
-                }
-                _funds.value = updated
-                _topFunds.value = updated.sortedByDescending { it.aiScore }.take(10)
-                _favorites.value = repo.getFavoriteFunds()
+                _funds.value = funds
                 _isLoading.value = false
-                Log.d("FundVM", "加载了 ${updated.size} 只基金")
+                // 排行加载完后再加载AI预测并更新
+                repo.loadAiPredictions(
+                    onResult = {
+                        val updated = funds.map { f ->
+                            val s = repo.getRealAiScore(f.code)
+                            if (s >= 0) f.copy(aiScore = s) else f.copy(aiScore = 0)
+                        }
+                        _funds.value = updated
+                        _topFunds.value = updated.filter { it.aiScore > 0 }
+                            .sortedByDescending { it.aiScore }.take(10)
+                        _favorites.value = repo.getFavoriteFunds()
+                        Log.d("FundVM", "AI预测已更新TOP10")
+                    },
+                    onError = {
+                        // 没有AI预测，用统计评分
+                        _topFunds.value = funds.sortedByDescending { it.aiScore }.take(10)
+                        _favorites.value = repo.getFavoriteFunds()
+                    }
+                )
             },
             onError = { error ->
                 _errorMsg.value = error
