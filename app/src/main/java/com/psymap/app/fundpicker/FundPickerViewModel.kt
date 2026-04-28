@@ -162,15 +162,24 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
             _funds.value = repo.getCachedFunds().map { applyRealScore(it) }
             return
         }
-        // 先搜本地缓存
         val local = repo.searchFunds(query).map { applyRealScore(it) }
         _funds.value = local
-        // 始终发起在线搜索（精确匹配基金代码/名称）
         if (query.length >= 2) {
             repo.searchFundsOnline(query,
                 onResult = { online ->
                     val merged = (online.map { applyRealScore(it) } + local).distinctBy { it.code }
                     _funds.value = merged
+                    // 对没有预测的基金，异步调云端API获取评分
+                    merged.filter { it.aiScore == 0 }.take(5).forEach { fund ->
+                        repo.fetchCloudPrediction(fund.code, 30,
+                            onResult = { pred ->
+                                _funds.value = _funds.value.map { f ->
+                                    if (f.code == fund.code) f.copy(aiScore = pred.probability) else f
+                                }
+                            },
+                            onError = { }
+                        )
+                    }
                 },
                 onError = { }
             )
