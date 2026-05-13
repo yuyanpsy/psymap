@@ -10,14 +10,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
 fun FundFavoritesPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
     val favorites by vm.favorites.collectAsState()
+    val predictions by vm.aiPredictions.collectAsState()
+    val positions by vm.positions.collectAsState()
+    val posCodes = remember(positions) { positions.map { it.fundCode }.toSet() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(FundBg),
@@ -68,13 +72,26 @@ fun FundFavoritesPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
         }
 
         items(favorites, key = { it.code }) { fund ->
-            FavoriteItem(fund = fund, onClick = { onFundClick(fund) })
+            val pred = predictions[fund.code]
+            val aiScore = (pred?.get("probability") as? Double)?.toInt() ?: 0
+            val conf = (pred?.get("confidence") as? Double)?.toInt() ?: 0
+            val sharpe = (pred?.get("sharpe") as? Double) ?: 0.0
+            val maxDd = (pred?.get("max_drawdown") as? Double) ?: 100.0
+            val posPct = (pred?.get("positive_pct") as? Double) ?: 0.0
+            FavoriteItem(
+                fund = fund, aiScore = aiScore,
+                confidence = conf, sharpe = sharpe,
+                maxDrawdown = maxDd, positivePct = posPct,
+                isPositioned = fund.code in posCodes,
+                onToggleFavorite = { vm.toggleFavorite(fund.code) },
+                onClick = { onFundClick(fund) }
+            )
         }
     }
 }
 
 @Composable
-private fun StatItem(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
+private fun StatItem(label: String, value: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, fontSize = 12.sp, color = FundTextSecondary)
         Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color)
@@ -82,39 +99,54 @@ private fun StatItem(label: String, value: String, color: androidx.compose.ui.gr
 }
 
 @Composable
-private fun FavoriteItem(fund: Fund, onClick: () -> Unit) {
+private fun FavoriteItem(
+    fund: Fund, aiScore: Int,
+    confidence: Int = 0,
+    sharpe: Double = 0.0,
+    maxDrawdown: Double = 100.0,
+    positivePct: Double = 0.0,
+    isPositioned: Boolean,
+    onToggleFavorite: () -> Unit,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 16.dp, vertical = 3.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = FundCardBg),
-        elevation = CardDefaults.cardElevation(1.dp)
+        elevation = CardDefaults.cardElevation(0.5.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(fund.name, fontSize = 15.sp, fontWeight = FontWeight.Medium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false))
-                    Spacer(Modifier.width(8.dp))
-                    Text(fund.code, fontSize = 12.sp, color = FundTextSecondary)
+        Column(Modifier.padding(12.dp)) {
+            // 统一头部：【板块】【基金名称】【基金代码】【持仓】【⭐】
+            FundHeaderRow(
+                fundName = fund.name, fundCode = fund.code,
+                isFavorite = true,  // 自选页里都是已收藏
+                isPositioned = isPositioned,
+                onFavoriteToggle = onToggleFavorite,
+                goldenWhenHighAi = true, aiScore = aiScore,
+                confidence = confidence, sharpe = sharpe,
+                maxDrawdown = maxDrawdown, positivePct = positivePct,
+                nameFontSize = 14.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            // 底行：左侧净值率，右侧AI
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // 左：今日涨跌
+                Text("今日 ", fontSize = 12.sp, color = FundTextSecondary)
+                Text(formatChange(fund.dayChange), fontSize = 13.sp,
+                    color = changeColor(fund.dayChange), fontWeight = FontWeight.Medium)
+                if (fund.nav > 0) {
+                    Spacer(Modifier.width(10.dp))
+                    Text("净值 %.4f".format(fund.nav), fontSize = 11.sp,
+                        color = FundTextSecondary)
                 }
-                Spacer(Modifier.height(6.dp))
-                Row {
-                    Text("%.4f".format(fund.nav), fontSize = 14.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(formatChange(fund.dayChange), fontSize = 14.sp,
-                        color = changeColor(fund.dayChange), fontWeight = FontWeight.Medium)
-                }
+                Spacer(Modifier.weight(1f))
+                // 右：AI 预测率（统一蓝色）
+                val displayAi = if (aiScore > 0) "AI $aiScore%" else "AI --"
+                Text(displayAi, fontSize = 13.sp, color = FundBlue, fontWeight = FontWeight.Medium)
             }
-            Spacer(Modifier.width(8.dp))
-            Text("AI ${fund.aiScore}%", fontSize = 13.sp,
-                color = FundBlue, fontWeight = FontWeight.Medium)
         }
     }
 }

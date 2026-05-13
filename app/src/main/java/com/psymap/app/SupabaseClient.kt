@@ -102,13 +102,25 @@ object SupabaseClient {
     }
 
     // ========== 用户登录/注册 ==========
-    suspend fun loginOrRegister(nickname: String, wechatOpenId: String = ""): String? {
-        // 优先用 wechat_open_id 查找
+    suspend fun loginOrRegister(nickname: String, wechatOpenId: String = "", deviceId: String = ""): String? {
+        // 优先用 device_id 查找（卸载重装后恢复）
+        if (deviceId.isNotBlank()) {
+            val existing = get("users", "?device_id=eq.$deviceId&select=*&limit=1")
+            val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
+            if (!list.isNullOrEmpty()) {
+                userId = list[0]["id"] as? String
+                Log.d("PsyMap-Sync", "通过device_id找到用户: $userId")
+                return userId
+            }
+        }
+        // 再用 wechat_open_id 查找
         if (wechatOpenId.isNotBlank()) {
             val existing = get("users", "?wechat_open_id=eq.$wechatOpenId&select=*&limit=1")
             val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
             if (!list.isNullOrEmpty()) {
                 userId = list[0]["id"] as? String
+                // 更新 device_id
+                if (deviceId.isNotBlank()) patch("users", "?id=eq.$userId", gson.toJson(mapOf("device_id" to deviceId)))
                 return userId
             }
         }
@@ -117,14 +129,15 @@ object SupabaseClient {
         val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
         if (!list.isNullOrEmpty()) {
             userId = list[0]["id"] as? String
-            // 更新 wechat_open_id（如果之前没有）
-            if (wechatOpenId.isNotBlank() && (list[0]["wechat_open_id"] as? String).isNullOrBlank()) {
-                patch("users", "?id=eq.$userId", gson.toJson(mapOf("wechat_open_id" to wechatOpenId)))
-            }
+            // 更新 device_id 和 wechat_open_id
+            val updates = mutableMapOf<String, String>()
+            if (deviceId.isNotBlank()) updates["device_id"] = deviceId
+            if (wechatOpenId.isNotBlank() && (list[0]["wechat_open_id"] as? String).isNullOrBlank()) updates["wechat_open_id"] = wechatOpenId
+            if (updates.isNotEmpty()) patch("users", "?id=eq.$userId", gson.toJson(updates))
             return userId
         }
         // 创建新用户
-        val body = gson.toJson(mapOf("nickname" to nickname, "role" to "admin", "wechat_open_id" to wechatOpenId))
+        val body = gson.toJson(mapOf("nickname" to nickname, "role" to "admin", "wechat_open_id" to wechatOpenId, "device_id" to deviceId))
         val result = post("users", body, "?select=*")
         val created = try { gson.fromJson<List<Map<String, Any>>>(result, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
         userId = created?.firstOrNull()?.get("id") as? String
@@ -205,7 +218,7 @@ object SupabaseClient {
             "wrongCount" to "wrong_count", "isFrequent" to "is_frequent",
             "isMemorize" to "is_memorize", "ttsGenerated" to "tts_generated",
             "content" to "content", "answer" to "answer", "explanation" to "explanation",
-            "options" to "options", "type" to "type"
+            "options" to "options", "type" to "type", "chapter" to "chapter"
         )
         for ((k, v) in fields) {
             keyMap[k]?.let { dbFields[it] = v }
@@ -224,11 +237,20 @@ object SupabaseClient {
 
     suspend fun fetchQuestions(): List<Question> {
         val uid = userId ?: return emptyList()
-        val json = get("questions", "?user_id=eq.$uid") ?: return emptyList()
-        return try {
-            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
-            list.map { questionFromMap(it) }
-        } catch (e: Exception) { emptyList() }
+        val allQuestions = mutableListOf<Question>()
+        var offset = 0
+        val pageSize = 1000
+        while (true) {
+            val json = get("questions", "?user_id=eq.$uid&limit=$pageSize&offset=$offset") ?: break
+            val list = try {
+                gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            } catch (e: Exception) { break }
+            if (list.isNullOrEmpty()) break
+            allQuestions.addAll(list.map { questionFromMap(it) })
+            if (list.size < pageSize) break
+            offset += pageSize
+        }
+        return allQuestions
     }
 
     private fun questionToMap(q: Question, uid: String): Map<String, Any?> = mapOf(
@@ -312,6 +334,51 @@ object SupabaseClient {
         upsert("daily_targets", gson.toJson(listOf(mapOf("user_id" to uid, "targets" to targets))), "user_id")
     }
 
+    // ========== 学习计划 ==========
+    suspend fun upsertStudyPlans(plans: List<StudyPlan>) {
+        val uid = userId ?: return
+        if (plans.isEmpty()) return
+        val maps = plans.map { p ->
+            mapOf(
+                "id" to p.id,
+                "user_id" to uid,
+                "phase" to p.phase.name.lowercase(),
+                "start_date" to p.startDate,
+                "end_date" to p.endDate,
+                "daily_targets" to p.dailyTargets,
+                "description" to p.description
+            )
+        }
+        upsert("study_plans", gson.toJson(maps), "id")
+    }
+
+    suspend fun fetchStudyPlans(): List<StudyPlan> {
+        val uid = userId ?: return emptyList()
+        val json = get("study_plans", "?user_id=eq.$uid") ?: return emptyList()
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            list.map { row ->
+                val phaseStr = row["phase"] as? String ?: "foundation"
+                val phase = try { StudyPhase.valueOf(phaseStr.uppercase()) } catch (e: Exception) { StudyPhase.FOUNDATION }
+                @Suppress("UNCHECKED_CAST")
+                val targets = (row["daily_targets"] as? Map<String, Double>)?.mapValues { it.value.toInt() } ?: emptyMap()
+                StudyPlan(
+                    id = row["id"] as? String ?: "",
+                    phase = phase,
+                    startDate = row["start_date"] as? String ?: "",
+                    endDate = row["end_date"] as? String ?: "",
+                    dailyTargets = targets,
+                    description = row["description"] as? String ?: ""
+                )
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    suspend fun deleteStudyPlan(planId: String) {
+        val uid = userId ?: return
+        delete("study_plans", "?id=eq.$planId&user_id=eq.$uid")
+    }
+
     suspend fun fetchDailyTargets(): Map<String, Int> {
         val uid = userId ?: return emptyMap()
         val json = get("daily_targets", "?user_id=eq.$uid&select=targets&limit=1") ?: return emptyMap()
@@ -322,9 +389,28 @@ object SupabaseClient {
         } catch (e: Exception) { emptyMap() }
     }
 
-    suspend fun upsertTargetScores(politics: Int, english: Int, psy: Int) {
+    suspend fun upsertTargetScores(politics: Int, english: Int, psy: Int, scoresMap: Map<String, Int>? = null) {
         val uid = userId ?: return
-        upsert("target_scores", gson.toJson(listOf(mapOf("user_id" to uid, "politics" to politics, "english" to english, "psy" to psy))), "user_id")
+        val data = mutableMapOf<String, Any>(
+            "user_id" to uid,
+            "politics" to politics,
+            "english" to english,
+            "psy" to psy
+        )
+        if (scoresMap != null) {
+            data["scores_map"] = scoresMap
+        }
+        upsert("target_scores", gson.toJson(listOf(data)), "user_id")
+    }
+
+    suspend fun fetchTargetScoresMap(): Map<String, Int> {
+        val uid = userId ?: return emptyMap()
+        val json = get("target_scores", "?user_id=eq.$uid&select=scores_map&limit=1") ?: return emptyMap()
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            @Suppress("UNCHECKED_CAST")
+            (list.firstOrNull()?.get("scores_map") as? Map<String, Double>)?.mapValues { it.value.toInt() } ?: emptyMap()
+        } catch (e: Exception) { emptyMap() }
     }
 
     suspend fun fetchTargetScores(): Triple<Int, Int, Int> {
@@ -358,6 +444,24 @@ object SupabaseClient {
         } catch (e: Exception) { null }
     }
 
+    // ========== FundPicker 预测数据（从 fund_predictions 表） ==========
+    suspend fun fetchFundPredictions(): Pair<List<Map<String, Any>>, Map<String, Map<String, Any>>> {
+        val json = get("fund_predictions", "?id=eq.latest&select=*") ?: return Pair(emptyList(), emptyMap())
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            val row = list.firstOrNull() ?: return Pair(emptyList(), emptyMap())
+            @Suppress("UNCHECKED_CAST")
+            val top10 = row["top10"] as? List<Map<String, Any>> ?: emptyList()
+            @Suppress("UNCHECKED_CAST")
+            val allPreds = row["all_predictions"] as? Map<String, Map<String, Any>> ?: emptyMap()
+            Log.d("Supabase", "fetchFundPredictions: top10=${top10.size}, all=${allPreds.size}")
+            Pair(top10, allPreds)
+        } catch (e: Exception) {
+            Log.e("Supabase", "fetchFundPredictions error", e)
+            Pair(emptyList(), emptyMap())
+        }
+    }
+
     // ========== FundPicker 数据同步 ==========
     suspend fun upsertFundPickerData(data: Map<String, Any>) {
         val uid = userId ?: return
@@ -377,11 +481,32 @@ object SupabaseClient {
         }
     }
 
+    // ========== Literature 数据同步 ==========
+    suspend fun upsertLiteratureData(data: Map<String, Any>) {
+        val uid = userId ?: return
+        upsert("literature_data", gson.toJson(listOf(mapOf("user_id" to uid, "data" to data))), "user_id")
+    }
+
+    suspend fun fetchLiteratureData(): Map<String, Any>? {
+        val uid = userId ?: return null
+        val json = get("literature_data", "?user_id=eq.$uid&select=data&limit=1") ?: return null
+        return try {
+            val list = gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+            @Suppress("UNCHECKED_CAST")
+            list.firstOrNull()?.get("data") as? Map<String, Any>
+        } catch (e: Exception) {
+            Log.e("Supabase", "fetchLiteratureData error", e)
+            null
+        }
+    }
+
     // ========== 合并推送（upsert，不删除云端数据） ==========
     suspend fun pushAll(
         banks: List<QuestionBank>, questions: List<Question>,
         checkIns: List<DailyCheckIn>, dailyTargets: Map<String, Int>,
-        politics: Int, english: Int, psy: Int
+        politics: Int, english: Int, psy: Int,
+        studyPlans: List<StudyPlan> = emptyList(),
+        targetScoresMap: Map<String, Int>? = null
     ) {
         val uid = userId ?: return
         // 题库 upsert
@@ -416,7 +541,8 @@ object SupabaseClient {
             }
         }
         upsertDailyTargets(dailyTargets)
-        upsertTargetScores(politics, english, psy)
+        upsertTargetScores(politics, english, psy, targetScoresMap)
+        if (studyPlans.isNotEmpty()) upsertStudyPlans(studyPlans)
     }
 
     // ========== 全量拉取 ==========
@@ -426,7 +552,8 @@ object SupabaseClient {
         val checkIns: List<DailyCheckIn>,
         val dailyTargets: Map<String, Int>,
         val targetScores: Triple<Int, Int, Int>,
-        val settings: Map<String, Any>?
+        val settings: Map<String, Any>?,
+        val studyPlans: List<StudyPlan> = emptyList()
     )
 
     suspend fun pullAll(): AllData {
@@ -436,7 +563,8 @@ object SupabaseClient {
             checkIns = fetchCheckIns(),
             dailyTargets = fetchDailyTargets(),
             targetScores = fetchTargetScores(),
-            settings = fetchSettings()
+            settings = fetchSettings(),
+            studyPlans = fetchStudyPlans()
         )
     }
 }

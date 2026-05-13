@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,8 +18,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -29,6 +33,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class AppTab(val label: String) {
     HOME("首页"),
@@ -40,7 +46,11 @@ enum class AppTab(val label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
+fun PsyMapApp(
+    vm: PsyMapViewModel = viewModel(),
+    sharedImageUris: List<android.net.Uri> = emptyList(),
+    sharedFileUri: android.net.Uri? = null
+) {
     val isLoading by vm.isLoading.collectAsState()
     val loadingMsg by vm.loadingMessage.collectAsState()
     val context = LocalContext.current
@@ -51,6 +61,57 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
     var showImageSourceDialog by remember { mutableStateOf(false) }
     var showGoStudySession by remember { mutableStateOf(false) }
 
+    // 双击返回退出
+    var backPressedOnce by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler {
+        if (backPressedOnce) {
+            (context as? android.app.Activity)?.finish()
+        } else {
+            backPressedOnce = true
+            android.widget.Toast.makeText(context, "再次返回将退出应用", android.widget.Toast.LENGTH_SHORT).show()
+            kotlinx.coroutines.MainScope().launch {
+                delay(2000)
+                backPressedOnce = false
+            }
+        }
+    }
+
+    // 处理外部分享的图片（拼接后进入拍照识题）
+    LaunchedEffect(sharedImageUris) {
+        if (sharedImageUris.isNotEmpty()) {
+            try {
+                val bitmaps = sharedImageUris.mapNotNull { uri ->
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        android.graphics.BitmapFactory.decodeStream(stream)
+                    }
+                }
+                if (bitmaps.isNotEmpty()) {
+                    // 垂直拼接多张图片
+                    val totalWidth = bitmaps.maxOf { it.width }
+                    val totalHeight = bitmaps.sumOf { it.height }
+                    val merged = Bitmap.createBitmap(totalWidth, totalHeight, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(merged)
+                    var y = 0f
+                    bitmaps.forEach { bmp ->
+                        canvas.drawBitmap(bmp, (totalWidth - bmp.width) / 2f, y, null)
+                        y += bmp.height
+                    }
+                    capturedBitmap = merged
+                    showImportDialog = true
+                }
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "图片加载失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    // 处理外部分享的文档
+    var showSharedFileImport by remember { mutableStateOf(false) }
+    LaunchedEffect(sharedFileUri) {
+        if (sharedFileUri != null) {
+            showSharedFileImport = true
+        }
+    }
+
     // 全分辨率拍照
     val photoFile = remember {
         File(context.cacheDir, "psymap_photo.jpg").apply { if (!exists()) createNewFile() }
@@ -59,6 +120,10 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile)
     }
 
+    // 多张拍照支持
+    var capturedPhotos by remember { mutableStateOf(listOf<Bitmap>()) }
+    var showMultiPhotoPreview by remember { mutableStateOf(false) }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success: Boolean ->
@@ -66,8 +131,8 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
             try {
                 val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
                 if (bitmap != null) {
-                    capturedBitmap = bitmap
-                    showImportDialog = true
+                    capturedPhotos = capturedPhotos + bitmap
+                    showMultiPhotoPreview = true
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "照片加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -82,17 +147,32 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
         else Toast.makeText(context, "需要相机权限", Toast.LENGTH_SHORT).show()
     }
 
-    // 从相册选择图片
+    // 从相册选择多张图片
     val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
             try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                inputStream?.close()
-                if (bitmap != null) {
-                    capturedBitmap = bitmap
+                val bitmaps = uris.mapNotNull { uri ->
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                }
+                if (bitmaps.size == 1) {
+                    capturedBitmap = bitmaps[0]
+                    showImportDialog = true
+                } else if (bitmaps.size > 1) {
+                    // 垂直拼接
+                    val totalWidth = bitmaps.maxOf { it.width }
+                    val totalHeight = bitmaps.sumOf { it.height }
+                    val merged = Bitmap.createBitmap(totalWidth, totalHeight, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(merged)
+                    var y = 0f
+                    bitmaps.forEach { bmp ->
+                        canvas.drawBitmap(bmp, (totalWidth - bmp.width) / 2f, y, null)
+                        y += bmp.height
+                    }
+                    capturedBitmap = merged
                     showImportDialog = true
                 }
             } catch (e: Exception) {
@@ -337,6 +417,61 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
         }
     }
 
+    // 多张拍照预览（继续拍照 or 开始识别）
+    if (showMultiPhotoPreview && capturedPhotos.isNotEmpty()) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showMultiPhotoPreview = false; capturedPhotos = emptyList() },
+            title = { Text("已拍 ${capturedPhotos.size} 张", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("题目跨页时可继续拍照，所有照片将拼接后一起识别", fontSize = 13.sp, color = Color.Gray)
+                    Spacer(Modifier.height(8.dp))
+                    // 缩略图预览
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        capturedPhotos.takeLast(3).forEach { bmp ->
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.size(60.dp).clip(RoundedCornerShape(6.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showMultiPhotoPreview = false
+                    // 拼接所有照片
+                    val totalWidth = capturedPhotos.maxOf { it.width }
+                    val totalHeight = capturedPhotos.sumOf { it.height }
+                    val merged = Bitmap.createBitmap(totalWidth, totalHeight, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(merged)
+                    var y = 0f
+                    capturedPhotos.forEach { bmp ->
+                        canvas.drawBitmap(bmp, (totalWidth - bmp.width) / 2f, y, null)
+                        y += bmp.height
+                    }
+                    capturedBitmap = merged
+                    capturedPhotos = emptyList()
+                    showImportDialog = true
+                }) { Text("开始识别") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { showMultiPhotoPreview = false; capturedPhotos = emptyList() }) {
+                        Text("取消")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = {
+                        showMultiPhotoPreview = false
+                        cameraLauncher.launch(photoUri)
+                    }) { Text("继续拍照 +") }
+                }
+            }
+        )
+    }
+
     // 拍照导入弹窗
     if (showImportDialog && capturedBitmap != null) {
         PhotoImportDialog(
@@ -346,6 +481,15 @@ fun PsyMapApp(vm: PsyMapViewModel = viewModel()) {
                 showImportDialog = false
                 capturedBitmap = null
             }
+        )
+    }
+
+    // 外部分享的文档导入
+    if (showSharedFileImport && sharedFileUri != null) {
+        FileImportDialog(
+            vm = vm,
+            uri = sharedFileUri,
+            onDismiss = { showSharedFileImport = false }
         )
     }
 

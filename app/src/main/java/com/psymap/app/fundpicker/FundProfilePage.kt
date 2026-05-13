@@ -4,7 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -40,9 +43,10 @@ fun FundProfilePage(
 
         // 数据状态卡片
         item {
-            val cachedCount = vm.repo.getCachedFunds().size
-            val favCount = vm.repo.getFavorites().size
-            val posCount = vm.repo.getPositions().size
+            // 使用 StateFlow，和各 tab 页完全一致
+            val favorites by vm.favorites.collectAsState()
+            val positions by vm.positions.collectAsState()
+            val predictions by vm.aiPredictions.collectAsState()
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(12.dp),
@@ -52,9 +56,9 @@ fun FundProfilePage(
                     modifier = Modifier.padding(16.dp).fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    ProfileStatItem("已缓存基金", "$cachedCount")
-                    ProfileStatItem("自选关注", "$favCount")
-                    ProfileStatItem("模拟持仓", "$posCount")
+                    ProfileStatItem("AI预测基金", "${predictions.size}")
+                    ProfileStatItem("自选关注", "${favorites.size}")
+                    ProfileStatItem("模拟持仓", "${positions.size}")
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -68,19 +72,9 @@ fun FundProfilePage(
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column {
-                    FundMenuItem(Icons.Default.TrendingUp, "风险偏好设置",
-                        subtitle = vm.getRiskPreference()) { showRiskDialog = true }
-                    HorizontalDivider(color = Color(0xFFF0F0F0))
-                    FundMenuItem(Icons.Default.Schedule, "默认时间维度",
-                        subtitle = vm.getDefaultPeriod().label) { showPeriodDialog = true }
-                    HorizontalDivider(color = Color(0xFFF0F0F0))
-                    FundMenuItem(Icons.Default.Notifications, "通知设置") { showNotificationSettings = true }
-                    HorizontalDivider(color = Color(0xFFF0F0F0))
-                    FundMenuItem(Icons.Default.Science, "AI模型说明") { showAiModelInfo = true }
+                    FundMenuItem(Icons.Default.Science, "AI预测算法原理") { showAiModelInfo = true }
                     HorizontalDivider(color = Color(0xFFF0F0F0))
                     FundMenuItem(Icons.Default.Refresh, "刷新数据") { vm.refresh() }
-                    HorizontalDivider(color = Color(0xFFF0F0F0))
-                    FundMenuItem(Icons.Default.Feedback, "意见反馈") { showFeedback = true }
                     HorizontalDivider(color = Color(0xFFF0F0F0))
                     FundMenuItem(Icons.Default.ExitToApp, "返回羽言心理", onClick = onBack)
                 }
@@ -211,27 +205,9 @@ fun FundProfilePage(
         )
     }
 
-    // AI模型说明
+    // AI模型说明 — 全屏页面
     if (showAiModelInfo) {
-        AlertDialog(
-            onDismissRequest = { showAiModelInfo = false },
-            title = { Text("AI模型说明") },
-            text = {
-                Column {
-                    Text("当前版本使用的预测模型：", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(8.dp))
-                    ModelInfoItem("LSTM", "长短期记忆网络，基于历史净值时序数据预测走势")
-                    ModelInfoItem("LightGBM", "梯度提升树，综合技术指标+基本面+资金流多因子预测")
-                    ModelInfoItem("情绪分析", "基于财经新闻和政策文本的NLP情绪打分")
-                    ModelInfoItem("集成模型", "加权融合以上三个模型的预测结果")
-                    Spacer(Modifier.height(8.dp))
-                    Text("⚠️ 当前AI评分基于历史涨跌数据的统计模型生成，" +
-                            "后续将接入真实训练的深度学习模型。",
-                        fontSize = 12.sp, color = Color(0xFFFF8F00), lineHeight = 18.sp)
-                }
-            },
-            confirmButton = { TextButton(onClick = { showAiModelInfo = false }) { Text("关闭") } }
-        )
+        AiModelInfoPage(onBack = { showAiModelInfo = false })
     }
 
     // 意见反馈
@@ -304,5 +280,99 @@ private fun FundMenuItem(
         }
         Icon(Icons.Default.ChevronRight, contentDescription = null,
             tint = Color(0xFFCCCCCC), modifier = Modifier.size(20.dp))
+    }
+}
+
+/** AI 预测算法原理 — 全屏页面 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AiModelInfoPage(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("AI预测算法原理", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).background(FundBg),
+            contentPadding = PaddingValues(16.dp)
+        ) {
+            item {
+                SectionCard("预测目标") {
+                    Text("预测每只基金未来30天净值上涨的概率（0-100%）", fontSize = 13.sp, color = FundTextSecondary)
+                }
+            }
+            item {
+                SectionCard("模型架构") {
+                    Text("• GradientBoosting（权重60%）\n• RandomForest（权重40%）\n• 集成概率 = GB×0.6 + RF×0.4\n• 两模型越一致，置信度越高（5⭐=完全一致）",
+                        fontSize = 13.sp, color = FundTextSecondary, lineHeight = 20.sp)
+                }
+            }
+            item {
+                SectionCard("输入特征（38个技术指标）") {
+                    Text("• 动量指标（5/10/20/60日）— 趋势延续性\n• RSI(6/14/28) — 超买超卖识别\n• MACD及柱状图 — 趋势跟踪\n• 布林带位置与宽度 — 均值回归\n• 波动率（5/10/20/60日）— 变盘预警\n• 趋势一致性 — 多周期方向确认\n• 均线偏离度 — 趋势强度\n• 最大回撤（20/60日）— 风险度量",
+                        fontSize = 13.sp, color = FundTextSecondary, lineHeight = 20.sp)
+                }
+            }
+            item {
+                SectionCard("风险收益指标") {
+                    InfoItem("夏普比率", "每承担1单位风险获得多少超额收益", ">2 优秀 | 1.5-2 良好 | <1 差")
+                    InfoItem("最大回撤", "历史最高点到最低点的最大跌幅", "<10% 优秀 | 10-15% 良好 | >30% 高风险")
+                    InfoItem("年化波动率", "收益的不确定性程度", "<15% 低 | 15-25% 中 | >25% 高")
+                    InfoItem("卡玛比率", "年化收益 / 最大回撤", ">2 优秀 | 1-2 良好 | <1 差")
+                    InfoItem("正收益概率", "任意一天买入持有到今天的赚钱比例", ">80% 优秀 | 60-80% 良好 | <50% 多数人亏")
+                    InfoItem("净值新高率", "创历史新高天数占比", ">30% 强势 | <15% 弱势")
+                }
+            }
+            item {
+                SectionCard("综合购买策略") {
+                    Text("强烈推荐（金色标注）", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFFD4AF37))
+                    Text("• AI预测 ≥70% + 置信度 ≥4\n• 夏普比率 >2\n• 最大回撤 <15%\n• 正收益概率 >80%",
+                        fontSize = 13.sp, color = FundTextSecondary, lineHeight = 20.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("可以考虑", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = FundBlue)
+                    Text("• AI预测 60-70%\n• 夏普比率 >1.0\n• 最大回撤 <20%\n• 卡玛比率 >1",
+                        fontSize = 13.sp, color = FundTextSecondary, lineHeight = 20.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("建议回避", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = FundTextSecondary)
+                    Text("• AI预测 <50%\n• 夏普比率 <0.5\n• 最大回撤 >30%\n• 正收益概率 <40%",
+                        fontSize = 13.sp, color = FundTextSecondary, lineHeight = 20.sp)
+                }
+            }
+            item {
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun InfoItem(name: String, desc: String, reference: String) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = FundBlue)
+        Text(desc, fontSize = 12.sp, color = FundTextSecondary)
+        Text("参考：$reference", fontSize = 11.sp, color = FundTextSecondary)
     }
 }

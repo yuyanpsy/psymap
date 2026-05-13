@@ -13,15 +13,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
+fun FundHomePage(
+    vm: FundPickerViewModel,
+    onFundClick: (Fund) -> Unit,
+    onIndexClick: (MarketIndex) -> Unit = {}
+) {
     val market by vm.market.collectAsState()
     val topFunds by vm.topFunds.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
     val errorMsg by vm.errorMsg.collectAsState()
+    val favorites by vm.favorites.collectAsState()
+    val positions by vm.positions.collectAsState()
+    val predictions by vm.aiPredictions.collectAsState()
+    val favCodes = remember(favorites) { favorites.map { it.code }.toSet() }
+    val posCodes = remember(positions) { positions.map { it.fundCode }.toSet() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(FundBg),
@@ -33,7 +43,7 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                 Box(modifier = Modifier.fillMaxWidth().padding(48.dp),
                     contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = FundBlue)
+                        Text("⏳", fontSize = 32.sp)
                         Spacer(Modifier.height(12.dp))
                         Text("正在加载实时数据...", fontSize = 14.sp, color = FundTextSecondary)
                     }
@@ -54,7 +64,7 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                 }
             }
         } else {
-        // 市场情绪卡片
+        // 大盘指数（每列可点击）
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -62,40 +72,24 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(2.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("市场情绪：", fontSize = 14.sp, color = FundTextSecondary)
-                        Text(market.sentimentLabel, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            when {
-                                market.sentimentScore >= 70 -> "😊"
-                                market.sentimentScore >= 40 -> "😐"
-                                else -> "😟"
-                            }, fontSize = 16.sp
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text("${market.sentimentScore}/100", fontSize = 13.sp, color = FundBlue)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { market.sentimentScore / 100f },
-                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                        color = FundBlue, trackColor = Color(0xFFE8EAED),
-                        gapSize = 0.dp, drawStopIndicator = {}
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        market.indices.forEach { idx ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(idx.name, fontSize = 12.sp, color = FundTextSecondary)
-                                Text("%.0f".format(idx.value), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                Text(formatChange(idx.changePct), fontSize = 12.sp,
-                                    color = changeColor(idx.changePct))
-                            }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    market.indices.forEach { idx ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onIndexClick(idx) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(idx.name, fontSize = 11.sp, color = FundTextSecondary)
+                            val valueStr = if (idx.name.contains("黄金") || idx.value < 1000)
+                                "%.2f".format(idx.value) else "%.0f".format(idx.value)
+                            Text(valueStr, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text(formatChange(idx.changePct), fontSize = 12.sp,
+                                color = changeColor(idx.changePct))
                         }
                     }
                 }
@@ -108,18 +102,31 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("🔥", fontSize = 18.sp)
-                Spacer(Modifier.width(4.dp))
-                Text("AI精选 · 今日Top10", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("AI精选 · 今日 TOP10", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(8.dp))
         }
 
         // AI精选列表
         itemsIndexed(topFunds) { index, fund ->
+            val pred = predictions[fund.code]
+            val conf = (pred?.get("confidence") as? Double)?.toInt() ?: 0
+            val sharpe = (pred?.get("sharpe") as? Double) ?: 0.0
+            val maxDd = (pred?.get("max_drawdown") as? Double) ?: 100.0
+            val posPct = (pred?.get("positive_pct") as? Double) ?: 0.0
             AiTopFundCard(
                 rank = index + 1,
                 fund = fund,
+                isFavorite = fund.code in favCodes,
+                isPositioned = fund.code in posCodes,
+                confidence = conf,
+                sharpe = sharpe,
+                maxDrawdown = maxDd,
+                positivePct = posPct,
+                onFavoriteToggle = {
+                    vm.repo.ensureFundCached(fund)
+                    vm.toggleFavorite(fund.code)
+                },
                 onClick = { onFundClick(fund) },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
@@ -130,7 +137,16 @@ fun FundHomePage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
 }
 
 @Composable
-private fun AiTopFundCard(rank: Int, fund: Fund, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun AiTopFundCard(
+    rank: Int, fund: Fund,
+    isFavorite: Boolean, isPositioned: Boolean,
+    confidence: Int = 0,
+    sharpe: Double = 0.0,
+    maxDrawdown: Double = 100.0,
+    positivePct: Double = 0.0,
+    onFavoriteToggle: () -> Unit,
+    onClick: () -> Unit, modifier: Modifier = Modifier
+) {
     Card(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
@@ -161,23 +177,40 @@ private fun AiTopFundCard(rank: Int, fund: Fund, onClick: () -> Unit, modifier: 
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(fund.name, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f, fill = false), maxLines = 1)
-                    Spacer(Modifier.width(6.dp))
-                    Text(fund.code, fontSize = 11.sp, color = FundTextSecondary)
-                }
-                Spacer(Modifier.height(6.dp))
-                AiScoreBar(fund.aiScore)
-                Spacer(Modifier.height(4.dp))
-                Row {
-                    Text("近1月 ", fontSize = 11.sp, color = FundTextSecondary)
-                    Text(formatChange(fund.monthChange), fontSize = 11.sp,
-                        color = changeColor(fund.monthChange))
-                    Spacer(Modifier.width(16.dp))
-                    Text("近1年 ", fontSize = 11.sp, color = FundTextSecondary)
-                    Text(formatChange(fund.yearChange), fontSize = 11.sp,
-                        color = changeColor(fund.yearChange))
+                // 统一头部：【板块】【基金名称】【基金代码】【持仓】【⭐】
+                FundHeaderRow(
+                    fundName = fund.name, fundCode = fund.code,
+                    isFavorite = isFavorite, isPositioned = isPositioned,
+                    onFavoriteToggle = onFavoriteToggle,
+                    goldenWhenHighAi = true, aiScore = fund.aiScore,
+                    confidence = confidence,
+                    sharpe = sharpe, maxDrawdown = maxDrawdown, positivePct = positivePct,
+                    nameFontSize = 14.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                // 第二行：左侧净值率，右侧AI预测率
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 左：近30天（如果还没加载则显示近1年）
+                    val (changeValue, changeLabel) = when {
+                        fund.monthChange != 0.0 -> fund.monthChange to "近30天"
+                        fund.yearChange != 0.0 -> fund.yearChange to "近1年"
+                        else -> 0.0 to "近30天"
+                    }
+                    Text("$changeLabel ", fontSize = 12.sp, color = FundTextSecondary)
+                    if (changeValue != 0.0) {
+                        Text(formatChange(changeValue), fontSize = 13.sp,
+                            color = changeColor(changeValue),
+                            fontWeight = FontWeight.Medium)
+                    } else {
+                        Text("--", fontSize = 13.sp, color = FundTextSecondary)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // 右：AI 预测率（统一蓝色，金色只用于基金名称）
+                    Text("AI ${fund.aiScore}%", fontSize = 13.sp,
+                        color = FundBlue, fontWeight = FontWeight.Medium)
                 }
             }
         }

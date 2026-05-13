@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -60,38 +61,38 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text("${vm.currentQuestionIndex + 1} / ${vm.getStudySessionSize()}",
-                        fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                },
-                navigationIcon = {
-                    IconButton(onClick = onFinish) {
-                        Icon(Icons.Default.Close, contentDescription = "退出")
-                    }
-                },
-                actions = {
-                    // 收藏按钮
-                    IconButton(onClick = { vm.toggleFavorite(question.id) }) {
-                        Icon(
-                            if (question.isInFavorites) Icons.Default.Star else Icons.Default.StarBorder,
-                            contentDescription = "收藏",
-                            tint = if (question.isInFavorites) Color(0xFFFF9800) else Color.Gray
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White, titleContentColor = Color(0xFFEF6C00), navigationIconContentColor = Color(0xFF333333), actionIconContentColor = Color(0xFF333333))
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .background(Color(0xFFFFF3E0))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onFinish) {
+                    Icon(Icons.Default.Close, contentDescription = "退出", tint = Color(0xFF333333))
+                }
+                Text("${vm.currentQuestionIndex + 1} / ${vm.getStudySessionSize()}",
+                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF6C00),
+                    modifier = Modifier.weight(1f))
+                IconButton(onClick = { vm.toggleFavorite(question.id) }) {
+                    Icon(
+                        if (question.isInFavorites) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = "收藏",
+                        tint = if (question.isInFavorites) Color(0xFFFF9800) else Color.Gray
+                    )
+                }
+            }
         },
-        bottomBar = {}
+        containerColor = Color.White
     ) { padding ->
+        val scrollState = rememberScrollState()
+        val coroutineScope = rememberCoroutineScope()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             // 题目类型标签
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -227,13 +228,28 @@ fun StudySessionPage(vm: PsyMapViewModel, onFinish: () -> Unit) {
             // 主观题
             if (question.type != QuestionType.SINGLE_CHOICE && question.type != QuestionType.MULTI_CHOICE) {
                 if (!showAnswer) {
+                    val answerLength = question.answer.length
+                    val inputHeight = when {
+                        answerLength > 200 -> 200.dp
+                        answerLength > 100 -> 150.dp
+                        answerLength > 50 -> 120.dp
+                        else -> 80.dp
+                    }
                     OutlinedTextField(
                         value = userTextAnswer,
                         onValueChange = { userTextMap = userTextMap.toMutableMap().apply { put(qId, it) } },
                         label = { Text("输入你的答案") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(150.dp),
+                            .heightIn(min = inputHeight, max = 200.dp)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(500)
+                                        scrollState.animateScrollTo(scrollState.maxValue)
+                                    }
+                                }
+                            },
                         maxLines = 10
                     )
                     Spacer(Modifier.height(12.dp))

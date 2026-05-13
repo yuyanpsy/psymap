@@ -9,6 +9,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.psymap.app.db.AppDatabase
+import com.psymap.app.db.toEntity
+import com.psymap.app.db.toDomain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -20,6 +23,8 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("psymap", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+    private val db = AppDatabase.getInstance(app)
+    private val questionDao = db.questionDao()
 
     // ========== 云端同步状态 ==========
     var cloudSyncing by mutableStateOf(false)
@@ -50,14 +55,18 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         autoSyncJob?.cancel()
         autoSyncJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             while (true) {
-                kotlinx.coroutines.delay(30_000) // 每30秒检查一次
+                kotlinx.coroutines.delay(60_000) // 每60秒检查一次
+                // 迁移完成前不自动推送
+                if (!prefs.getBoolean("migration_delete_bulk_v4", false)) continue
                 if (SupabaseClient.userId != null) {
                     val currentHash = computeDataHash()
                     if (currentHash != lastPushedHash) {
                         try {
                             SupabaseClient.pushAll(
                                 questionBanks, questions, checkInRecords, dailyTargets,
-                                targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0
+                                targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0,
+                                studyPlans,
+                                targetScoresMap = targetScores
                             )
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                 lastPushedHash = currentHash
@@ -141,12 +150,43 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) { 0 }
         }
 
+    // 数据加载状态
+    var dataLoading by mutableStateOf(true)
+
     init {
-        loadData()
+        loadDataFast()
+        // 耗时的题目数据在后台从 Room 加载
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            migrateFromPrefsIfNeeded()
+            // 一次性迁移：删除人格题库中社会心理学章节的题目
+            if (!prefs.getBoolean("migration_delete_social_v1", false)) {
+                val personalityBank = questionBanks.find { it.subject == Subject.PERSONALITY }
+                if (personalityBank != null) {
+                    val socialChapters = listOf("社会思维", "社会关系", "社会影响", "应用社会心理学")
+                    val toDelete = questionDao.getByBankId(personalityBank.id)
+                        .filter { e -> socialChapters.any { e.chapter.contains(it) } }
+                    if (toDelete.isNotEmpty()) {
+                        questionDao.deleteByIds(toDelete.map { it.id })
+                    }
+                }
+                prefs.edit().putBoolean("migration_delete_social_v1", true).apply()
+            }
+            val allQuestions = questionDao.getAll().map { it.toDomain() }
+            val cleanQuestions = allQuestions.filter { !it.bankId.startsWith("__") }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                questions = cleanQuestions
+                // 更新题库计数
+                questionBanks = questionBanks.map { bank ->
+                    bank.copy(questionCount = questions.count { it.bankId == bank.id })
+                }
+                saveBanks()
+                dataLoading = false
+            }
+        }
     }
 
     // ========== 数据持久化 ==========
-    private fun loadData() {
+    private fun loadDataFast() {
         // 恢复云端用户 ID
         SupabaseClient.userId = prefs.getString("cloud_user_id", null)
         SupabaseClient.supabaseUrl = prefs.getString("supabase_url", SupabaseClient.supabaseUrl) ?: SupabaseClient.supabaseUrl
@@ -172,13 +212,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         val rawBanks: List<QuestionBank> = gson.fromJson(banksJson, object : TypeToken<List<QuestionBank>>() {}.type) ?: emptyList()
         val cleanBanks = rawBanks.filter { !it.id.startsWith("__") }
         questionBanks = cleanBanks
-        if (cleanBanks.size < rawBanks.size) saveBanks() // 清理后保存
-
-        val questionsJson = prefs.getString("questions", "[]") ?: "[]"
-        val rawQuestions: List<Question> = gson.fromJson(questionsJson, object : TypeToken<List<Question>>() {}.type) ?: emptyList()
-        val cleanQuestions = rawQuestions.filter { !it.bankId.startsWith("__") }
-        questions = cleanQuestions
-        if (cleanQuestions.size < rawQuestions.size) saveQuestions() // 清理后保存
+        if (cleanBanks.size < rawBanks.size) saveBanks()
 
         val checkInJson = prefs.getString("checkIns", "[]") ?: "[]"
         checkInRecords = gson.fromJson(checkInJson, object : TypeToken<List<DailyCheckIn>>() {}.type) ?: emptyList()
@@ -188,6 +222,44 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
         val targetsJson = prefs.getString("dailyTargets", "{}") ?: "{}"
         dailyTargets = gson.fromJson(targetsJson, object : TypeToken<Map<String, Int>>() {}.type) ?: emptyMap()
+    }
+
+    private suspend fun migrateFromPrefsIfNeeded() {
+        if (prefs.contains("questions")) {
+            val json = prefs.getString("questions", "[]") ?: "[]"
+            if (json != "[]") {
+                val list: List<Question> = try {
+                    gson.fromJson(json, object : TypeToken<List<Question>>() {}.type) ?: emptyList()
+                } catch (e: Exception) { emptyList() }
+                if (list.isNotEmpty()) {
+                    questionDao.insertAll(list.map { it.toEntity() })
+                }
+            }
+            prefs.edit().remove("questions").apply()
+        }
+    }
+
+    @Suppress("unused")
+    private fun loadData() {
+        loadDataFast()
+
+        // 一次性修复：打卡记录补全（必须在 dailyTargets 加载之后）
+        val fixDates = listOf("2026-04-06", "2026-04-19", "2026-04-28")
+        val totalTargetFix = dailyTargets.values.filter { it > 0 }.sum()
+        if (totalTargetFix > 0) {
+            var fixed = false
+            for (date in fixDates) {
+                val existing = checkInRecords.find { it.date == date }
+                if (existing == null || existing.completedCount < (existing.targetCount.takeIf { it > 0 } ?: totalTargetFix)) {
+                    val patched = existing?.copy(completedCount = totalTargetFix, targetCount = totalTargetFix)
+                        ?: DailyCheckIn(date = date, completedCount = totalTargetFix, targetCount = totalTargetFix)
+                    checkInRecords = checkInRecords.filter { it.date != date } + patched
+                    syncToCloud { SupabaseClient.upsertCheckIn(patched) }
+                    fixed = true
+                }
+            }
+            if (fixed) saveCheckIns()
+        }
 
         // 目标分数（新格式：JSON map；兼容旧格式：3个固定字段）
         val scoresJson = prefs.getString("targetScoresMap", null)
@@ -210,24 +282,93 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             isLoggedIn = true
         }
 
-        // 初始化默认题库
-        if (questionBanks.isEmpty()) {
-            questionBanks = Subject.entries.map { subject ->
-                QuestionBank(name = subject.label, subject = subject)
-            }
-            saveBanks()
-        }
-
+        // 不在这里创建默认题库，等云端同步完成后再判断
         updateTodayCheckIn()
         refreshCheckInStats()
 
-        // 自动从云端拉取最新数据（后台静默）
-        if (SupabaseClient.userId != null) {
-            syncFromCloud()
-            startAutoSync()
+        // 获取设备ID
+        val deviceId = try {
+            android.provider.Settings.Secure.getString(
+                getApplication<android.app.Application>().contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            ) ?: ""
+        } catch (e: Exception) { "" }
+
+        // 自动登录并从云端恢复数据
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (SupabaseClient.userId == null) {
+                    // 优先用设备ID查找（卸载重装后恢复）
+                    if (deviceId.isNotBlank()) {
+                        SupabaseClient.loginOrRegister(
+                            nickname = currentUser.nickname.ifBlank { "device_$deviceId" },
+                            deviceId = deviceId
+                        )
+                    } else if (currentUser.nickname.isNotBlank()) {
+                        SupabaseClient.loginOrRegister(currentUser.nickname)
+                    }
+                }
+                if (SupabaseClient.userId != null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        // 迁移完成后才从云端同步
+                        if (prefs.getBoolean("migration_delete_bulk_v4", false)) {
+                            syncFromCloud()
+                        }
+                        // 云端同步完成后，如果仍然没有题库，才创建默认题库
+                        if (questionBanks.isEmpty()) {
+                            questionBanks = Subject.entries.map { subject ->
+                                QuestionBank(name = subject.label, subject = subject)
+                            }
+                            saveBanks()
+                        }
+                        startAutoSync()
+                    }
+                } else {
+                    // 无法连接云端，本地创建默认题库
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        if (questionBanks.isEmpty()) {
+                            questionBanks = Subject.entries.map { subject ->
+                                QuestionBank(name = subject.label, subject = subject)
+                            }
+                            saveBanks()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PsyMap-Sync", "自动登录失败: ${e.message}")
+                // 失败时也要确保有默认题库
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (questionBanks.isEmpty()) {
+                        questionBanks = Subject.entries.map { subject ->
+                            QuestionBank(name = subject.label, subject = subject)
+                        }
+                        saveBanks()
+                    }
+                }
+            }
         }
         updateLocalHash()
         lastPushedHash = localDataHash
+    }
+
+    /** App 进入后台时同步数据 */
+    fun onAppBackground() {
+        if (SupabaseClient.userId != null) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    SupabaseClient.pushAll(
+                        questionBanks, questions, checkInRecords, dailyTargets,
+                        targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0,
+                        studyPlans,
+                        targetScoresMap = targetScores
+                    )
+                    SupabaseClient.upsertSettings(apiKey, apiBaseUrl, modelName, AiService.textModelName, aiEnabled)
+                    Log.d("PsyMap-Sync", "后台同步完成")
+                } catch (e: Exception) {
+                    Log.e("PsyMap-Sync", "后台同步失败: ${e.message}")
+                }
+            }
+        }
     }
 
     /** 从云端拉取并合并数据 */
@@ -243,59 +384,80 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     questions = questions.filter { !it.bankId.startsWith("__") }
                     saveBanks(); saveQuestions()
 
-                    // 合并题库：云端有本地没有的 → 加入；都有的 → 保留本地（名字可能改了）
-                    val localBankIds = questionBanks.map { it.id }.toSet()
-                    val cloudBankIds = data.banks.map { it.id }.toSet()
-                    val newBanks = data.banks.filter { it.id !in localBankIds }
-                    if (newBanks.isNotEmpty()) {
-                        questionBanks = questionBanks + newBanks
+                    // 判断是否为全新安装（本地无用户数据）
+                    val isFreshInstall = questions.isEmpty() && checkInRecords.isEmpty()
+
+                    if (isFreshInstall && data.banks.isNotEmpty()) {
+                        // 全新安装：直接用云端数据替换本地
+                        questionBanks = data.banks
                         saveBanks()
-                    }
-
-                    // 合并题目：云端有本地没有的 → 加入；都有的 → 取累计值较大的
-                    val localQMap = questions.associateBy { it.id }.toMutableMap()
-                    var questionsChanged = false
-                    for (cq in data.questions) {
-                        val lq = localQMap[cq.id]
-                        if (lq == null) {
-                            localQMap[cq.id] = cq
-                            questionsChanged = true
-                        } else {
-                            // 合并：取较大的累计值，合并布尔标记（任一端标记则标记）
-                            val merged = lq.copy(
-                                reviewCount = maxOf(lq.reviewCount, cq.reviewCount),
-                                correctCount = maxOf(lq.correctCount, cq.correctCount),
-                                wrongCount = maxOf(lq.wrongCount, cq.wrongCount),
-                                isInWrongBook = lq.isInWrongBook || cq.isInWrongBook,
-                                isInFavorites = lq.isInFavorites || cq.isInFavorites,
-                                isFrequent = lq.isFrequent || cq.isFrequent,
-                                isMemorize = lq.isMemorize || cq.isMemorize,
-                                ttsGenerated = lq.ttsGenerated || cq.ttsGenerated,
-                                content = if (cq.content.length > lq.content.length) cq.content else lq.content,
-                                answer = if (cq.answer.length > lq.answer.length) cq.answer else lq.answer
-                            )
-                            if (merged != lq) { localQMap[cq.id] = merged; questionsChanged = true }
-                        }
-                    }
-                    if (questionsChanged) {
-                        questions = localQMap.values.toList()
+                        questions = data.questions
                         saveQuestions()
-                    }
-
-                    // 合并打卡：按日期合并，取 completedCount 较大的
-                    val localCiMap = checkInRecords.associateBy { it.date }.toMutableMap()
-                    var ciChanged = false
-                    for (cc in data.checkIns) {
-                        val lc = localCiMap[cc.date]
-                        if (lc == null) {
-                            localCiMap[cc.date] = cc; ciChanged = true
-                        } else if (cc.completedCount > lc.completedCount) {
-                            localCiMap[cc.date] = cc; ciChanged = true
+                        if (data.checkIns.isNotEmpty()) {
+                            checkInRecords = data.checkIns.sortedByDescending { it.date }
+                            saveCheckIns()
                         }
-                    }
-                    if (ciChanged) {
-                        checkInRecords = localCiMap.values.sortedByDescending { it.date }
-                        saveCheckIns()
+                    } else {
+                        // 强制用云端数据覆盖本地题目（保留本地的学习进度取较大值）
+                        val localQMap = questions.associateBy { it.id }
+                        val mergedQuestions = mutableListOf<Question>()
+                        val cloudIds = mutableSetOf<String>()
+                        
+                        for (cq in data.questions) {
+                            cloudIds.add(cq.id)
+                            val lq = localQMap[cq.id]
+                            if (lq == null) {
+                                // 云端有但本地没有：可能是本地已删除，不再自动恢复
+                                // 只有全新安装时才添加（由上面的 isFreshInstall 分支处理）
+                            } else {
+                                // 以云端 bankId 为准，学习进度取较大值
+                                mergedQuestions.add(cq.copy(
+                                    reviewCount = maxOf(lq.reviewCount, cq.reviewCount),
+                                    correctCount = maxOf(lq.correctCount, cq.correctCount),
+                                    wrongCount = maxOf(lq.wrongCount, cq.wrongCount),
+                                    isInWrongBook = lq.isInWrongBook || cq.isInWrongBook,
+                                    isInFavorites = lq.isInFavorites || cq.isInFavorites,
+                                    isFrequent = lq.isFrequent || cq.isFrequent,
+                                    isMemorize = lq.isMemorize || cq.isMemorize,
+                                    ttsGenerated = lq.ttsGenerated || cq.ttsGenerated
+                                ))
+                            }
+                        }
+                        // 保留本地有但云端没有的题目
+                        for (lq in questions) {
+                            if (lq.id !in cloudIds) mergedQuestions.add(lq)
+                        }
+                        questions = mergedQuestions
+                        saveQuestions()
+
+                        // 合并题库
+                        val localBankIds = questionBanks.map { it.id }.toSet()
+                        val newBanks = data.banks.filter { it.id !in localBankIds }
+                        if (newBanks.isNotEmpty()) {
+                            questionBanks = questionBanks + newBanks
+                            saveBanks()
+                        }
+                        // 更新题库计数
+                        questionBanks = questionBanks.map { bank ->
+                            bank.copy(questionCount = questions.count { it.bankId == bank.id })
+                        }
+                        saveBanks()
+
+                        // 合并打卡
+                        val localCiMap = checkInRecords.associateBy { it.date }.toMutableMap()
+                        var ciChanged = false
+                        for (cc in data.checkIns) {
+                            val lc = localCiMap[cc.date]
+                            if (lc == null) {
+                                localCiMap[cc.date] = cc; ciChanged = true
+                            } else if (cc.completedCount > lc.completedCount) {
+                                localCiMap[cc.date] = cc; ciChanged = true
+                            }
+                        }
+                        if (ciChanged) {
+                            checkInRecords = localCiMap.values.sortedByDescending { it.date }
+                            saveCheckIns()
+                        }
                     }
 
                     // 每日目标：合并（取较大值）
@@ -306,9 +468,17 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                         prefs.edit().putString("dailyTargets", gson.toJson(dailyTargets)).apply()
                     }
 
-                    // 目标分数：合并云端数据
+                    // 目标分数：合并云端数据（优先用完整 map，fallback 到 3 个固定字段）
                     val (p, e, s) = data.targetScores
                     val merged = targetScores.toMutableMap()
+                    // 从云端拉取完整的 scores_map
+                    val cloudScoresMap = try {
+                        SupabaseClient.fetchTargetScoresMap()
+                    } catch (ex: Exception) { emptyMap() }
+                    for ((k, v) in cloudScoresMap) {
+                        if (v > 0) merged[k] = maxOf(merged[k] ?: 0, v)
+                    }
+                    // 兼容：旧版 3 个固定字段
                     if (p > 0) merged["政治"] = maxOf(merged["政治"] ?: 0, p)
                     if (e > 0) merged["英语"] = maxOf(merged["英语"] ?: 0, e)
                     if (s > 0) merged["专业综合"] = maxOf(merged["专业综合"] ?: 0, s)
@@ -340,7 +510,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     syncToCloud {
                         SupabaseClient.pushAll(
                             questionBanks, questions, checkInRecords, dailyTargets,
-                            targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0
+                            targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0,
+                            studyPlans,
+                            targetScoresMap = targetScores
                         )
                     }
                 }
@@ -361,7 +533,9 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 SupabaseClient.pushAll(
                     questionBanks, questions, checkInRecords, dailyTargets,
-                    targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0
+                    targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0,
+                    studyPlans,
+                    targetScoresMap = targetScores
                 )
                 SupabaseClient.upsertSettings(apiKey, apiBaseUrl, modelName,
                     AiService.textModelName, aiEnabled)
@@ -383,9 +557,15 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     /** 云端登录/注册 */
     fun cloudLogin(nickname: String, onResult: (Boolean, String) -> Unit) {
         val openId = currentUser.wechatOpenId
+        val deviceId = try {
+            android.provider.Settings.Secure.getString(
+                getApplication<android.app.Application>().contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            ) ?: ""
+        } catch (e: Exception) { "" }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val uid = SupabaseClient.loginOrRegister(nickname, openId)
+                val uid = SupabaseClient.loginOrRegister(nickname, openId, deviceId)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     if (uid != null) {
                         prefs.edit().putString("cloud_user_id", uid).apply()
@@ -446,7 +626,10 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun saveQuestions() {
-        prefs.edit().putString("questions", gson.toJson(questions)).apply()
+        invalidateQuestionsCache()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            questionDao.insertAll(questions.map { it.toEntity() })
+        }
     }
 
     fun saveQuestionsPublic() = saveQuestions()
@@ -491,7 +674,20 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun getQuestionsForBank(bankId: String): List<Question> {
-        return questions.filter { it.bankId == bankId }.sortedByDescending { it.createdAt }
+        return questionsCache.getOrPut(bankId) {
+            questions.filter { it.bankId == bankId }.sortedByDescending { it.createdAt }
+        }
+    }
+
+    // 题目缓存（按 bankId 分组），questions 变化时清空
+    private var questionsCache = mutableMapOf<String, List<Question>>()
+
+    fun invalidateQuestionsCache() {
+        questionsCache.clear()
+    }
+
+    fun getQuestionCountForBank(bankId: String): Int {
+        return questions.count { it.bankId == bankId }
     }
 
     fun addQuestion(bankId: String, content: String, answer: String, type: QuestionType,
@@ -512,6 +708,35 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         syncToCloud { SupabaseClient.upsertQuestion(q); questionBanks.find { it.id == bankId }?.let { SupabaseClient.upsertBank(it) } }
     }
 
+    fun moveQuestionToBank(questionId: String, targetBankId: String) {
+        val oldBankId = questions.find { it.id == questionId }?.bankId ?: return
+        if (oldBankId == targetBankId) return
+
+        questions = questions.map {
+            if (it.id == questionId) it.copy(bankId = targetBankId) else it
+        }
+        updateBankCount(oldBankId)
+        updateBankCount(targetBankId)
+        saveQuestions()
+        val movedQ = questions.find { it.id == questionId }
+        if (movedQ != null) {
+            syncToCloud { SupabaseClient.upsertQuestion(movedQ) }
+        }
+    }
+
+    fun moveQuestionsToBank(questionIds: List<String>, targetBankId: String) {
+        val affectedBankIds = mutableSetOf<String>()
+        questions = questions.map { q ->
+            if (q.id in questionIds && q.bankId != targetBankId) {
+                affectedBankIds.add(q.bankId)
+                q.copy(bankId = targetBankId)
+            } else q
+        }
+        affectedBankIds.add(targetBankId)
+        affectedBankIds.forEach { updateBankCount(it) }
+        saveQuestions()
+    }
+
     fun updateQuestion(questionId: String, content: String, answer: String, options: List<String> = emptyList(), explanation: String = "") {
         if (currentUser.role != UserRole.ADMIN) return
         val fmtContent = formatTextMarkdown(content)
@@ -530,6 +755,14 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         }
         saveQuestions()
         syncToCloud { SupabaseClient.updateQuestionFields(questionId, mapOf("type" to type.name.lowercase())) }
+    }
+
+    fun updateQuestionChapter(questionId: String, chapter: String) {
+        questions = questions.map {
+            if (it.id == questionId) it.copy(chapter = chapter) else it
+        }
+        saveQuestions()
+        syncToCloud { SupabaseClient.updateQuestionFields(questionId, mapOf("chapter" to chapter)) }
     }
 
     fun deleteQuestions(questionIds: Set<String>) {
@@ -1211,6 +1444,14 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     private fun calculateConsecutiveDays(): Int {
         val cal = Calendar.getInstance()
         var count = 0
+        // 先检查今天是否已完成
+        val todayStr = dateFormat.format(cal.time)
+        val todayRecord = checkInRecords.find { it.date == todayStr }
+        if (todayRecord != null && isDayCheckedIn(todayRecord)) {
+            count++
+        }
+        // 从昨天开始往回数连续天数
+        cal.add(Calendar.DAY_OF_YEAR, -1)
         while (true) {
             val dateStr = dateFormat.format(cal.time)
             val dayRecord = checkInRecords.find { it.date == dateStr }
@@ -1429,11 +1670,11 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     fun saveTargetScores(scores: Map<String, Int>) {
         targetScores = scores
         prefs.edit().putString("targetScoresMap", gson.toJson(scores)).apply()
-        // 兼容旧版云端同步（仍用3个字段）
+        // 云端同步：既传 3 个固定字段（兼容旧版），也传完整的 map（支持灵活科目）
         val p = scores["政治"] ?: 0
         val e = scores["英语"] ?: 0
         val s = scores["专业综合"] ?: 0
-        syncToCloud { SupabaseClient.upsertTargetScores(p, e, s) }
+        syncToCloud { SupabaseClient.upsertTargetScores(p, e, s, scores) }
     }
 
     // ========== 退出登录 ==========
@@ -1550,12 +1791,24 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ========== 搜索 ==========
+    private var lastSearchKeyword: String = ""
+
     fun searchQuestions(keyword: String) {
+        lastSearchKeyword = keyword
         searchResults = if (keyword.isBlank()) emptyList()
         else questions.filter {
             it.content.contains(keyword, ignoreCase = true) ||
             it.answer.contains(keyword, ignoreCase = true) ||
+            it.chapter.contains(keyword, ignoreCase = true) ||
+            it.options.any { opt -> opt.contains(keyword, ignoreCase = true) } ||
+            it.explanation.contains(keyword, ignoreCase = true) ||
             it.tags.any { tag -> tag.contains(keyword, ignoreCase = true) }
+        }
+    }
+
+    fun refreshSearchResults() {
+        if (lastSearchKeyword.isNotBlank()) {
+            searchQuestions(lastSearchKeyword)
         }
     }
 

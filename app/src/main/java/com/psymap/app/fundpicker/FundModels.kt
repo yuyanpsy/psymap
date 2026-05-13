@@ -96,7 +96,9 @@ data class PortfolioPosition(
     val currentNav: Double = 0.0,   // 当前净值
     val profit: Double = 0.0,       // 盈亏金额
     val profitPct: Double = 0.0,    // 盈亏比例 %
-    val weightPct: Double = 0.0     // 仓位占比 %
+    val weightPct: Double = 0.0,    // 仓位占比 %
+    val buyDate: String = "",       // 购买日期
+    val buyAiScore: Int = 0         // 买入时的 AI 预测率
 )
 
 /** 模拟交易记录 */
@@ -154,7 +156,8 @@ data class SectorFund(
     val nav: Double = 0.0,             // 单位净值
     val dayChange: Double = 0.0,       // 日涨幅
     val fundScale: String = "",        // 规模
-    val buyRate: String = ""           // 申购费率
+    val buyRate: String = "",          // 申购费率
+    val aiScore: Int = 0               // AI预测上涨概率
 )
 
 /** 行业布局排序方式 */

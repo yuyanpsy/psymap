@@ -140,9 +140,9 @@ fun HomePage(vm: PsyMapViewModel) {
         // 搜索结果
         if (searchText.isNotEmpty() && vm.searchResults.isNotEmpty()) {
             item { Text("搜索结果 (${vm.searchResults.size})", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontWeight = FontWeight.Medium) }
-            items(vm.searchResults.take(20)) { question -> SearchResultItem(question, vm) { clickedQuestion = question } }
+            items(vm.searchResults) { question -> SearchResultItem(question, vm) { clickedQuestion = question } }
         } else {
-            // 题库列表标题栏 + 导入文件/新建题库入口
+            // 题库列表标题栏 + 导入文件入口
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -150,27 +150,41 @@ fun HomePage(vm: PsyMapViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("我的题库", fontWeight = FontWeight.Medium, fontSize = 16.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = {
-                            filePickerLauncher.launch(arrayOf("application/pdf", "application/msword",
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "image/*", "text/plain"))
-                        }) {
-                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("导入文件", fontSize = 13.sp)
-                        }
-                        TextButton(onClick = { showCreateBank = true }) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("新建题库", fontSize = 13.sp)
-                        }
+                    TextButton(onClick = {
+                        filePickerLauncher.launch(arrayOf("application/pdf", "application/msword",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "image/*", "text/plain"))
+                    }) {
+                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("导入文件", fontSize = 13.sp)
                     }
                 }
             }
             items(vm.questionBanks) { bank ->
                 QuestionBankCard(bank, vm) { selectedBankId = bank.id; showBankDetail = true }
+            }
+            // 新建题库按钮（放在所有题库下方）
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { showCreateBank = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(0.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFFFF8A00), modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("新建题库", fontWeight = FontWeight.Medium, fontSize = 16.sp, color = Color(0xFFFF8A00))
+                    }
+                }
             }
         }
     }
@@ -328,10 +342,16 @@ fun QuestionBankCard(bank: QuestionBank, vm: PsyMapViewModel, onClick: () -> Uni
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SearchResultItem(question: Question, vm: PsyMapViewModel, onClick: () -> Unit) {
     val bank = vm.questionBanks.find { it.id == question.bankId }
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable(onClick = onClick),
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        .combinedClickable(
+            onClick = onClick,
+            onLongClick = { if (vm.isAdmin) showDeleteConfirm = true }
+        ),
         shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(question.content, fontSize = 14.sp, maxLines = 2)
@@ -343,6 +363,26 @@ fun SearchResultItem(question: Question, vm: PsyMapViewModel, onClick: () -> Uni
                 if (question.isMemorize) { Spacer(Modifier.width(6.dp)); Text("📖多背", fontSize = 11.sp, color = Color(0xFF1976D2)) }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        val context = LocalContext.current
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("删除题目") },
+            text = { Text("确定删除这道题目吗？此操作不可撤销。\n\n${question.content.take(50)}${if (question.content.length > 50) "..." else ""}") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteQuestions(setOf(question.id))
+                    vm.refreshSearchResults()
+                    showDeleteConfirm = false
+                    android.widget.Toast.makeText(context, "已删除", android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
+        )
     }
 }
 
@@ -917,6 +957,38 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
     // 保存按钮需要的状态
     var importBankId by remember { mutableStateOf("") }
 
+    fun extractTextFromDocx(inputStream: java.io.InputStream): String {
+        return try {
+            val zipInputStream = java.util.zip.ZipInputStream(inputStream)
+            var xml = ""
+            var entry = zipInputStream.nextEntry
+            while (entry != null) {
+                if (entry.name == "word/document.xml") {
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(zipInputStream))
+                    xml = reader.readText()
+                    break
+                }
+                entry = zipInputStream.nextEntry
+            }
+            zipInputStream.close()
+            if (xml.isEmpty()) return ""
+            // 按段落 </w:p> 分割，提取 <w:t> 标签中的文本
+            val paragraphs = xml.split("</w:p>")
+            val textPattern = Regex("<w:t[^>]*>(.*?)</w:t>")
+            val sb = StringBuilder()
+            for (para in paragraphs) {
+                val matches = textPattern.findAll(para)
+                val paraText = matches.map { it.groupValues[1] }.joinToString("")
+                if (paraText.isNotEmpty()) {
+                    sb.appendLine(paraText)
+                }
+            }
+            sb.toString().trim()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     fun doImport() {
         val bankId = if (isCreatingNew && newBankName.isNotBlank()) {
             vm.createBank(newBankName, newBankSubject).id
@@ -963,30 +1035,50 @@ fun FileImportDialog(vm: PsyMapViewModel, uri: Uri, onDismiss: () -> Unit) {
                 fd.close()
                 onDismiss()
             } else {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                if (inputStream == null) {
-                    Toast.makeText(context, "无法读取文件", Toast.LENGTH_SHORT).show()
-                    return
+                // 检测是否是 docx 文件
+                val isDocx = mimeType.contains("word", ignoreCase = true) ||
+                        mimeType.contains("openxmlformats-officedocument.wordprocessingml", ignoreCase = true)
+
+                if (isDocx) {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream == null) {
+                        Toast.makeText(context, "无法读取文件", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    val text = extractTextFromDocx(inputStream)
+                    inputStream.close()
+                    if (text.isBlank()) {
+                        Toast.makeText(context, "docx 文件内容为空", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    vm.importFromFileContent(text, bankId, selectedType, tagFrequent, tagMemorize)
+                    onDismiss()
+                } else {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream == null) {
+                        Toast.makeText(context, "无法读取文件", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream))
+                    val sb = StringBuilder()
+                    val maxChars = 15000
+                    val buffer = CharArray(4096)
+                    var totalRead = 0
+                    var read: Int
+                    while (reader.read(buffer).also { read = it } != -1 && totalRead < maxChars) {
+                        val toAppend = minOf(read, maxChars - totalRead)
+                        sb.append(buffer, 0, toAppend)
+                        totalRead += toAppend
+                    }
+                    reader.close()
+                    val text = sb.toString()
+                    if (text.isBlank()) {
+                        Toast.makeText(context, "文件内容为空或格式不支持", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    vm.importFromFileContent(text, bankId, selectedType, tagFrequent, tagMemorize)
+                    onDismiss()
                 }
-                val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream))
-                val sb = StringBuilder()
-                val maxChars = 15000
-                val buffer = CharArray(4096)
-                var totalRead = 0
-                var read: Int
-                while (reader.read(buffer).also { read = it } != -1 && totalRead < maxChars) {
-                    val toAppend = minOf(read, maxChars - totalRead)
-                    sb.append(buffer, 0, toAppend)
-                    totalRead += toAppend
-                }
-                reader.close()
-                val text = sb.toString()
-                if (text.isBlank()) {
-                    Toast.makeText(context, "文件内容为空或格式不支持", Toast.LENGTH_SHORT).show()
-                    return
-                }
-                vm.importFromFileContent(text, bankId, selectedType, tagFrequent, tagMemorize)
-                onDismiss()
             }
         } catch (e: Exception) {
             Toast.makeText(context, "文件读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -2961,9 +3053,10 @@ fun SimpleMarkdownText(text: String, modifier: Modifier = Modifier) {
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
                         )
-                    } else if (url.startsWith("/") || url.startsWith("file:")) {
+                    } else if (url.startsWith("/") || url.startsWith("file:") || url.startsWith("content:")) {
                         // 本地文件路径
-                        val file = java.io.File(url.removePrefix("file://"))
+                        val filePath = url.removePrefix("file://")
+                        val file = java.io.File(filePath)
                         if (file.exists()) {
                             val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
                             if (bitmap != null) {
@@ -2973,7 +3066,11 @@ fun SimpleMarkdownText(text: String, modifier: Modifier = Modifier) {
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                     contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
                                 )
+                            } else {
+                                Text("⚠️ 图片解码失败", fontSize = 12.sp, color = Color.Red)
                             }
+                        } else {
+                            Text("⚠️ 图片文件不存在: ${file.name}", fontSize = 12.sp, color = Color.Red)
                         }
                     }
                 }

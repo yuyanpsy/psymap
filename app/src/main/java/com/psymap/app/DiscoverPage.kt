@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -42,6 +43,13 @@ fun DiscoverPage(vm: PsyMapViewModel) {
     val allFilteredQuestions = filteredBanks.flatMap { vm.getQuestionsForBank(it.id) }
     val typeCounts = allTypes.associateWith { type -> allFilteredQuestions.count { it.type == type } }
 
+    // 章节列表（从当前选中题库的题目中提取）
+    var selectedChapter by remember { mutableStateOf<String?>(null) }
+    val availableChapters = remember(selectedBankName, vm.questions) {
+        val qs = if (selectedBankName != null) vm.getQuestionsForBank(selectedBankName!!) else vm.questions
+        qs.map { it.chapter }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+
     Row(modifier = Modifier.fillMaxSize()) {
         // 左侧分类栏
         Column(
@@ -73,12 +81,58 @@ fun DiscoverPage(vm: PsyMapViewModel) {
         LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight().background(Color.White)) {
             // 题型筛选标签（固定在顶部）
             stickyHeader {
-                @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(modifier = Modifier.fillMaxWidth().background(Color.White)) {
+                    // 章节筛选（限制最大高度为屏幕1/3，可滚动）
+                    if (availableChapters.isNotEmpty()) {
+                        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+                        val maxChapterHeight = screenHeight / 3
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth()
+                                .heightIn(max = maxChapterHeight)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            FilterChip(
+                                selected = selectedChapter == null,
+                                onClick = { selectedChapter = null },
+                                label = { Text("全部章节", fontSize = 11.sp) },
+                                shape = RoundedCornerShape(16.dp),
+                                border = null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF1976D2),
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color(0xFFF0F0F0),
+                                    labelColor = Color(0xFF666666)
+                                )
+                            )
+                            availableChapters.forEach { chapter ->
+                                FilterChip(
+                                    selected = selectedChapter == chapter,
+                                    onClick = { selectedChapter = if (selectedChapter == chapter) null else chapter },
+                                    label = { Text(chapter, fontSize = 11.sp) },
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF1976D2),
+                                        selectedLabelColor = Color.White,
+                                        containerColor = Color(0xFFF0F0F0),
+                                        labelColor = Color(0xFF666666)
+                                    )
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFF0F0F0))
+                    }
+                    // 题型筛选
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                     // 全部题型
                     FilterChip(
                         selected = selectedTypes.isEmpty(),
@@ -118,6 +172,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                             )
                         )
                     }
+                    }
                 }
             }
 
@@ -137,6 +192,7 @@ fun DiscoverPage(vm: PsyMapViewModel) {
                 val allBankQuestions = vm.getQuestionsForBank(bank.id)
                 val questions = allBankQuestions.filter { q ->
                     (selectedTypes.isEmpty() || q.type in selectedTypes) &&
+                    (selectedChapter == null || q.chapter == selectedChapter) &&
                     (!filterFrequent || q.isFrequent) &&
                     (!filterMemorize || q.isMemorize)
                 }
@@ -186,7 +242,8 @@ fun DiscoverPage(vm: PsyMapViewModel) {
             onDismiss = { showBankDetail = false },
             filterTypes = selectedTypes,
             filterFrequent = filterFrequent,
-            filterMemorize = filterMemorize
+            filterMemorize = filterMemorize,
+            filterChapter = selectedChapter
         )
     }
 }

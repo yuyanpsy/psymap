@@ -35,6 +35,8 @@ fun ProfilePage(vm: PsyMapViewModel) {
     var showBackupConfirm by remember { mutableStateOf(false) }
     var showShareBank by remember { mutableStateOf(false) }
     var showScoreSetting by remember { mutableStateOf(false) }
+    var showDocTools by remember { mutableStateOf(false) }
+    var showLiterature by remember { mutableStateOf(false) }
     var showAccountInfo by remember { mutableStateOf(false) }
     var showVersionInfo by remember { mutableStateOf(false) }
     var showCloudSync by remember { mutableStateOf(false) }
@@ -226,6 +228,14 @@ fun ProfilePage(vm: PsyMapViewModel) {
                         context.startActivity(android.content.Intent.createChooser(intent, "分享App"))
                     }
                     HorizontalDivider(color = Color(0xFFF0F0F0))
+                    ProfileMenuItem(Icons.Default.Description, "文档工具") {
+                        showDocTools = true
+                    }
+                    HorizontalDivider(color = Color(0xFFF0F0F0))
+                    ProfileMenuItem(Icons.Default.LibraryBooks, "文献管理") {
+                        showLiterature = true
+                    }
+                    HorizontalDivider(color = Color(0xFFF0F0F0))
                     ProfileMenuItem(Icons.Default.CloudUpload, "数据备份") {
                         showBackupConfirm = true
                     }
@@ -274,6 +284,12 @@ fun ProfilePage(vm: PsyMapViewModel) {
             },
             dismissButton = { TextButton(onClick = { showBackupConfirm = false }) { Text("取消") } }
         )
+    }
+
+    if (showDocTools) {
+        FullScreenDialog(onDismissRequest = { showDocTools = false }) {
+            DocumentToolsPage(onBack = { showDocTools = false })
+        }
     }
 
     if (showAccountInfo) {
@@ -409,6 +425,13 @@ fun ProfilePage(vm: PsyMapViewModel) {
     if (showFundPicker) {
         FullScreenDialog(onDismissRequest = { showFundPicker = false }) {
             com.psymap.app.fundpicker.FundPickerApp(onBack = { showFundPicker = false })
+        }
+    }
+
+    // 文献管理全屏入口
+    if (showLiterature) {
+        FullScreenDialog(onDismissRequest = { showLiterature = false }) {
+            com.psymap.app.literature.LiteratureApp(onBack = { showLiterature = false })
         }
     }
 }

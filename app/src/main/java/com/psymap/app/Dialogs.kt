@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -344,11 +346,13 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
 @Composable
 fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -> Unit,
                             filterTypes: Set<QuestionType> = emptySet(),
-                            filterFrequent: Boolean = false, filterMemorize: Boolean = false) {
+                            filterFrequent: Boolean = false, filterMemorize: Boolean = false,
+                            filterChapter: String? = null) {
     val bank = vm.questionBanks.find { it.id == bankId } ?: return
     val allQuestions = vm.getQuestionsForBank(bankId)
     val questions = allQuestions.filter { q ->
         (filterTypes.isEmpty() || q.type in filterTypes) &&
+        (filterChapter == null || q.chapter == filterChapter) &&
         (!filterFrequent || q.isFrequent) &&
         (!filterMemorize || q.isMemorize)
     }
@@ -478,23 +482,25 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 // 题目列表
-                Column(
+                LazyColumn(
                     modifier = Modifier
                         .weight(1f)
-                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp)
                 ) {
                     if (questions.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("暂无题目", color = Color.Gray)
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("暂无题目", color = Color.Gray)
+                            }
                         }
                     }
-                    questions.forEachIndexed { index, q ->
+                    items(questions.size, key = { idx -> questions[idx].id }) { index ->
+                        val q = questions[index]
                         val isSelected = q.id in selectedIds
                         Card(
                             modifier = Modifier
@@ -728,7 +734,7 @@ fun QuestionDetailDialog(
 
                 if (bank != null) {
                     Spacer(Modifier.height(4.dp))
-                    Text("所属题库: ${bank.subject.emoji} ${bank.name}", fontSize = 11.sp, color = Color.Gray)
+                    Text("所属: ${bank.subject.emoji} ${bank.name}" + if (liveQuestion.chapter.isNotBlank()) " · ${liveQuestion.chapter}" else "", fontSize = 11.sp, color = Color.Gray)
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -810,6 +816,99 @@ fun QuestionDetailDialog(
                         if (liveQuestion.correctCount + liveQuestion.wrongCount > 0) {
                             Text("错误率 ${(liveQuestion.errorRate * 100).toInt()}%", fontSize = 11.sp, color = Color.Gray)
                         }
+                    }
+                }
+
+                // 移动到其他题库 + 修改章节
+                if (!isEditing) {
+                    Spacer(Modifier.height(12.dp))
+                    var showMoveDialog by remember { mutableStateOf(false) }
+                    var showChapterDialog by remember { mutableStateOf(false) }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { showMoveDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("移动题库", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { showChapterDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Label, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("修改章节", fontSize = 12.sp)
+                        }
+                    }
+                    if (showMoveDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showMoveDialog = false },
+                            title = { Text("移动到题库") },
+                            text = {
+                                Column {
+                                    vm.questionBanks.filter { it.id != liveQuestion.bankId }.forEach { targetBank ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().clickable {
+                                                vm.moveQuestionToBank(liveQuestion.id, targetBank.id)
+                                                showMoveDialog = false
+                                            }.padding(vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) { Text("${targetBank.subject.emoji} ${targetBank.name}", fontSize = 14.sp) }
+                                    }
+                                }
+                            },
+                            confirmButton = {},
+                            dismissButton = { TextButton(onClick = { showMoveDialog = false }) { Text("取消") } }
+                        )
+                    }
+                    if (showChapterDialog) {
+                        var newChapter by remember { mutableStateOf(liveQuestion.chapter) }
+                        // 获取当前题库中已有的章节列表
+                        val existingChapters = remember {
+                            vm.getQuestionsForBank(liveQuestion.bankId)
+                                .map { it.chapter }.filter { it.isNotBlank() }.distinct().sorted()
+                        }
+                        AlertDialog(
+                            onDismissRequest = { showChapterDialog = false },
+                            title = { Text("修改章节") },
+                            text = {
+                                Column {
+                                    OutlinedTextField(
+                                        value = newChapter,
+                                        onValueChange = { newChapter = it },
+                                        label = { Text("章节名称") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    if (existingChapters.isNotEmpty()) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("已有章节（点击选择）：", fontSize = 11.sp, color = Color.Gray)
+                                        Spacer(Modifier.height(4.dp))
+                                        @OptIn(ExperimentalLayoutApi::class)
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            existingChapters.forEach { ch ->
+                                                FilterChip(
+                                                    selected = newChapter == ch,
+                                                    onClick = { newChapter = ch },
+                                                    label = { Text(ch, fontSize = 11.sp) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    vm.updateQuestionChapter(liveQuestion.id, newChapter)
+                                    showChapterDialog = false
+                                }) { Text("保存") }
+                            },
+                            dismissButton = { TextButton(onClick = { showChapterDialog = false }) { Text("取消") } }
+                        )
                     }
                 }
 

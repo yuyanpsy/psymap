@@ -165,6 +165,15 @@ class FundRepository(context: Context) {
             .apply()
     }
 
+    /** 确保基金在缓存中（用于收藏时保存基金数据） */
+    fun ensureFundCached(fund: Fund) {
+        val cached = getCachedFunds().toMutableList()
+        if (cached.none { it.code == fund.code }) {
+            cached.add(fund)
+            cacheFunds(cached)
+        }
+    }
+
     fun getCachedFunds(): List<Fund> {
         val json = prefs.getString("cached_funds", null) ?: return emptyList()
         return try {
@@ -273,6 +282,9 @@ class FundRepository(context: Context) {
 
     private var aiPredictions: Map<String, Map<String, Any>> = emptyMap()
 
+    /** 获取原始预测数据 Map */
+    fun getAllPredictionsRaw(): Map<String, Map<String, Any>> = aiPredictions
+
     /** 加载AI预测结果 */
     fun loadAiPredictions(
         onResult: () -> Unit,
@@ -291,6 +303,11 @@ class FundRepository(context: Context) {
     /** 获取单只基金的AI预测 */
     fun getAiPrediction(fundCode: String, horizon: String = "30d"): Map<String, Any>? {
         val fundPred = aiPredictions[fundCode] ?: return null
+        // 兼容 Supabase 扁平格式: {"probability": 81, "confidence": 4, ...}
+        if (fundPred.containsKey("probability")) {
+            return fundPred
+        }
+        // 旧 GitHub 嵌套格式: {"30d": {"probability": ...}}
         @Suppress("UNCHECKED_CAST")
         return fundPred[horizon] as? Map<String, Any>
     }
@@ -303,11 +320,15 @@ class FundRepository(context: Context) {
 
     /** 获取所有基金的预测评分 */
     fun getAllPredictionScores(): Map<String, Int> {
-        return aiPredictions.mapNotNull { (code, horizons) ->
-            @Suppress("UNCHECKED_CAST")
-            val pred30d = horizons["30d"] as? Map<String, Any> ?: return@mapNotNull null
-            val prob = (pred30d["probability"] as? Double)?.toInt() ?: return@mapNotNull null
-            code to prob
+        return aiPredictions.mapNotNull { (code, data) ->
+            val prob = if (data.containsKey("probability")) {
+                (data["probability"] as? Double)?.toInt()
+            } else {
+                @Suppress("UNCHECKED_CAST")
+                val pred30d = data["30d"] as? Map<String, Any>
+                (pred30d?.get("probability") as? Double)?.toInt()
+            }
+            if (prob != null) code to prob else null
         }.toMap()
     }
 
@@ -466,7 +487,12 @@ class FundRepository(context: Context) {
 
     fun getFavoriteFunds(): List<Fund> {
         val codes = getFavorites()
-        return getCachedFunds().filter { it.code in codes }
+        if (codes.isEmpty()) return emptyList()
+        val cachedMap = getCachedFunds().associateBy { it.code }
+        // 即使不在缓存中也返回一个占位 Fund，名称用代码兜底，ViewModel 会异步补全
+        return codes.map { code ->
+            cachedMap[code] ?: Fund(code = code, name = "基金$code")
+        }
     }
 
     // ==================== 模拟持仓（本地持久化） ====================
@@ -474,12 +500,45 @@ class FundRepository(context: Context) {
     fun getPositions(): List<PortfolioPosition> {
         val json = prefs.getString("positions", null) ?: return emptyList()
         return try {
-            gson.fromJson(json, object : TypeToken<List<PortfolioPosition>>() {}.type)
+            val list: List<PortfolioPosition> = gson.fromJson(json,
+                object : TypeToken<List<PortfolioPosition>>() {}.type)
+            // 迁移：旧数据没有 buyDate，用首次 buy 交易记录的时间补齐
+            var needMigrate = false
+            val txns = getTransactions()
+            val migrated = list.map { p ->
+                if (p.buyDate.isBlank()) {
+                    val firstBuy = txns.filter { it.fundCode == p.fundCode && it.type == "buy" }
+                        .minByOrNull { it.createdAt }
+                    val date = firstBuy?.createdAt?.let { ts ->
+                        // Transaction.createdAt 格式："MM-dd HH:mm"，拼上当前年份
+                        try {
+                            val parts = ts.split(" ").firstOrNull()?.split("-")
+                            if (parts != null && parts.size == 2) {
+                                val year = java.util.Calendar.getInstance()
+                                    .get(java.util.Calendar.YEAR)
+                                "$year-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}"
+                            } else null
+                        } catch (_: Exception) { null }
+                    } ?: dateFormat.format(Date())
+                    needMigrate = true
+                    p.copy(buyDate = date)
+                } else p
+            }
+            if (needMigrate) {
+                prefs.edit().putString("positions", gson.toJson(migrated)).apply()
+                Log.d(TAG, "持仓 buyDate 迁移完成: ${migrated.size}只")
+            }
+            migrated
         } catch (e: Exception) { emptyList() }
     }
 
     private fun savePositions(positions: List<PortfolioPosition>) {
         prefs.edit().putString("positions", gson.toJson(positions)).apply()
+    }
+
+    /** 公开版本：供 ViewModel 迁移时回写 */
+    fun savePositionsPublic(positions: List<PortfolioPosition>) {
+        savePositions(positions)
     }
 
     fun getTransactions(): List<Transaction> {
@@ -493,7 +552,7 @@ class FundRepository(context: Context) {
         prefs.edit().putString("transactions", gson.toJson(txns)).apply()
     }
 
-    fun simulateBuy(fundCode: String, amount: Double): Boolean {
+    fun simulateBuy(fundCode: String, amount: Double, buyAiScore: Int = 0): Boolean {
         val fund = getFundByCode(fundCode) ?: return false
         if (fund.nav <= 0) return false
         val shares = amount / fund.nav
@@ -511,13 +570,16 @@ class FundRepository(context: Context) {
                 currentNav = fund.nav, currentValue = currentValue,
                 profit = currentValue - newCost,
                 profitPct = (currentValue - newCost) / newCost * 100
+                // buyDate 和 buyAiScore 保持首次买入不变
             )
         } else {
             positions.add(PortfolioPosition(
                 fundCode = fundCode, fundName = fund.name,
                 costAmount = amount, currentValue = amount,
                 shares = shares, avgCostNav = fund.nav, currentNav = fund.nav,
-                profit = 0.0, profitPct = 0.0, weightPct = 0.0
+                profit = 0.0, profitPct = 0.0, weightPct = 0.0,
+                buyDate = dateFormat.format(java.util.Date()),
+                buyAiScore = buyAiScore
             ))
         }
         recalcWeights(positions)
@@ -614,9 +676,17 @@ class FundRepository(context: Context) {
 
     /** 从云端拉取FundPicker数据 */
     suspend fun pullFromCloud(): Boolean {
-        if (SupabaseClient.userId == null) return false
+        if (SupabaseClient.userId == null) {
+            Log.w(TAG, "pullFromCloud: userId=null, 跳过")
+            return false
+        }
         try {
-            val data = SupabaseClient.fetchFundPickerData() ?: return false
+            val data = SupabaseClient.fetchFundPickerData()
+            if (data == null) {
+                Log.w(TAG, "pullFromCloud: fetchFundPickerData 返回 null")
+                return false
+            }
+            Log.d(TAG, "pullFromCloud: 拿到数据 keys=${data.keys}")
 
             // 恢复自选
             @Suppress("UNCHECKED_CAST")
@@ -722,6 +792,6 @@ fun FundRankItem.toFund(): Fund = Fund(
     weekChange = weekChange, monthChange = monthChange,
     threeMonthChange = threeMonthChange, sixMonthChange = sixMonthChange,
     yearChange = yearChange, threeYearChange = threeYearChange,
-    aiScore = calculateAiScore(dayChange, weekChange, monthChange, threeMonthChange, sixMonthChange, yearChange),
+    aiScore = 0,  // AI评分只从Supabase真实预测获取
     fundSize = "", manager = ""
 )

@@ -1,5 +1,6 @@
 package com.psymap.app.fundpicker
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -23,9 +24,19 @@ fun FundPickerApp(
     onBack: () -> Unit
 ) {
     var currentTab by remember { mutableStateOf(FundTab.HOME) }
-    // 详情页导航
     var showDetail by remember { mutableStateOf(false) }
-    var showAiLab by remember { mutableStateOf(false) }
+    var showSectorFunds by remember { mutableStateOf<String?>(null) } // sector name or null
+    var showIndexDetail by remember { mutableStateOf<MarketIndex?>(null) }
+
+    // 处理系统返回键/全面屏手势
+    BackHandler(enabled = showDetail || showSectorFunds != null || showIndexDetail != null || currentTab != FundTab.HOME) {
+        when {
+            showDetail -> showDetail = false
+            showSectorFunds != null -> showSectorFunds = null
+            showIndexDetail != null -> showIndexDetail = null
+            currentTab != FundTab.HOME -> currentTab = FundTab.HOME
+        }
+    }
 
     MaterialTheme(
         colorScheme = lightColorScheme(
@@ -37,17 +48,38 @@ fun FundPickerApp(
             error = FundRed
         )
     ) {
-        if (showAiLab) {
-            AiLabPage(vm = vm, onBack = { showAiLab = false })
-            return@MaterialTheme
-        }
-
+        // 详情页（最高优先级）
         if (showDetail) {
             FundDetailPage(
                 vm = vm,
                 onBack = { showDetail = false },
-                onOpenAiLab = { showAiLab = true },
-                onBuy = { /* 买入后切到持仓tab */ currentTab = FundTab.PORTFOLIO }
+                onBuy = { currentTab = FundTab.PORTFOLIO }
+            )
+            return@MaterialTheme
+        }
+
+        // 板块基金列表页
+        if (showSectorFunds != null) {
+            SectorFundListPage(
+                sectorName = showSectorFunds!!,
+                vm = vm,
+                onBack = { showSectorFunds = null },
+                onFundClick = { fund ->
+                    vm.selectFund(fund)
+                    showDetail = true
+                }
+            )
+            return@MaterialTheme
+        }
+
+        // 指数详情页
+        if (showIndexDetail != null) {
+            val idx = showIndexDetail!!
+            IndexDetailPage(
+                indexName = idx.name,
+                currentValue = idx.value,
+                currentChangePct = idx.changePct,
+                onBack = { showIndexDetail = null }
             )
             return@MaterialTheme
         }
@@ -64,12 +96,16 @@ fun FundPickerApp(
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when (currentTab) {
-                    FundTab.HOME -> FundHomePage(vm = vm, onFundClick = {
-                        vm.selectFund(it); showDetail = true
-                    })
-                    FundTab.DISCOVER -> FundDiscoverPage(vm = vm, onFundClick = {
-                        vm.selectFund(it); showDetail = true
-                    })
+                    FundTab.HOME -> FundHomePage(
+                        vm = vm,
+                        onFundClick = { vm.selectFund(it); showDetail = true },
+                        onIndexClick = { showIndexDetail = it }
+                    )
+                    FundTab.DISCOVER -> FundDiscoverPage(
+                        vm = vm,
+                        onFundClick = { vm.selectFund(it); showDetail = true },
+                        onSectorClick = { sectorName -> showSectorFunds = sectorName }
+                    )
                     FundTab.PORTFOLIO -> PortfolioPage(vm = vm, onFundClick = {
                         vm.selectFundByCode(it); showDetail = true
                     })

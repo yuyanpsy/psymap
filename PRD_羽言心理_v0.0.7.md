@@ -515,7 +515,206 @@ Top特征：60日波动率、20日波动率、RSI(28)、均线偏离度、布林
 | GET /top10 | 获取预测概率最高的TOP10基金 |
 | GET /predict/{code}?horizon=30 | 实时预测任意基金（自动获取数据） |
 | GET /predict/{code}/all | 预测所有周期（7/30/90天） |
+| GET /backtest?horizon=30 | 获取分档位回测胜率（前端展示用） |
+| POST /run-backtest | 手动触发一次回测流程 |
 | GET /health | 健康检查 |
+
+#### 15.6.6 AI 预测算法详解
+
+##### 预测目标
+
+预测每只基金**未来 30 天净值上涨的概率**（0-100%）。二分类问题：30 天后净值比今天高 → 正样本。
+
+##### 模型架构
+
+- **GradientBoostingClassifier**（权重 60%）：逐步构建决策树，擅长非线性关系
+- **RandomForestClassifier**（权重 40%）：300 棵独立决策树投票，抗过拟合
+- **集成概率** = GB × 0.6 + RF × 0.4
+- **置信度**：两模型预测结果一致程度（5⭐=完全一致，1⭐=严重分歧）
+
+##### 训练方式
+
+- Walk-Forward 5 折时序交叉验证（用过去预测未来，避免数据泄露）
+- 训练数据：200+ 只基金 × 3 年净值（26 万+ 样本）
+- 准确率：约 55-62%
+
+##### 输入特征（38 个技术指标）
+
+| 特征类别 | 具体指标 | 预测原理 |
+|---------|---------|---------|
+| 动量指标 | 5/10/20/60日动量 + 加速度 | 趋势延续性（动量效应） |
+| RSI | RSI(6/14/28) | 超买超卖识别（均值回归） |
+| MACD | MACD线/信号线/柱状图 | 趋势跟踪（金叉/死叉） |
+| 布林带 | 上轨/下轨/带宽/位置 | 均值回归 + 突破预警 |
+| 均线系统 | MA5/10/20/60 + 偏离度 + 交叉 | 趋势方向 + 强度 |
+| 波动率 | 5/10/20/60日波动率 | 变盘预警（波动率聚集） |
+| 最大回撤 | 20/60日回撤 | 风险度量 + 反弹概率 |
+| 趋势一致性 | 5/20/60日方向一致比例 | 多周期确认 |
+| 收益率 | 1/5/10/20/60日 + 对数收益 | 基础趋势信号 |
+
+##### 预测结果输出（每只基金存入 Supabase）
+
+```json
+{
+  "name": "基金名称",
+  "probability": 78.3,        // AI 上涨概率 %
+  "confidence": 4,            // 置信度 1-5
+  "factors": [...],           // 关键因子（前3个）
+  "nav_at_predict": 1.2345,   // 预测时净值（回测用）
+  "sharpe": 1.61,             // 夏普比率（全量历史）
+  "max_drawdown": 14.99,      // 最大回撤 %
+  "positive_pct": 99.4        // 正收益概率 %
+}
+```
+
+##### 基金基础数据来源
+
+| 数据 | 来源 | 接口 |
+|------|------|------|
+| 基金排行（代码/名称/涨跌幅） | 东方财富 | `fund.eastmoney.com/data/rankhandler.aspx` |
+| 净值走势（全量历史） | 东方财富 | `fund.eastmoney.com/pingzhongdata/{code}.js` |
+| 实时估值 | 天天基金 | `fundgz.1234567.com.cn/js/{code}.js` |
+| 大盘指数 + 现货黄金 | 新浪财经 | `hq.sinajs.cn/list=s_sh000001,...,hf_XAU` |
+| 基金详情（经理/规模/费率/持仓） | 东方财富 | `fund.eastmoney.com/pingzhongdata/{code}.js` |
+
+##### Cron 任务调度
+
+| 任务名 | 频率 | 功能 |
+|--------|------|------|
+| `fundpicker-batch-predict` | 每 5 分钟 | 预测 500 只新基金（含风险指标），保存到 Supabase，更新 TOP10 |
+| `fundpicker-daily-snapshot` | 每天 UTC 09:30（北京 17:30） | 存当天所有基金的预测概率+净值快照 |
+| `fundpicker-daily-verify` | 每天 UTC 10:00（北京 18:00） | 对 30 天前快照回填实际涨跌 + 聚合档位胜率 |
+
+##### Supabase 读写逻辑
+
+| 表 | 写入时机 | 读取时机 |
+|------|---------|---------|
+| `fund_predictions.top10` | cron 每批完成后 PATCH | APP 启动 `loadCloudTop10()` |
+| `fund_predictions.all_predictions` | cron 每批完成后 POST | APP 启动 `loadAiPredictions()` |
+| `fund_prediction_snapshots` | 每天 17:30 | 30 天后对账 |
+| `fund_prediction_backtest` | 每天 18:00 聚合 | APP 详情页展示 |
+| `fund_picker_data` | 用户操作后 push | APP 启动时 pull |
+
+##### 板块基金归类策略
+
+- 23 个板块，每个板块有关键词列表
+- 归类方式：基金名称包含任一关键词 → 归入该板块
+- 按板块顺序匹配（"半导体"优先于"科技"）
+- 板块基金列表从东方财富排行接口拉 3000 只，按关键词筛选
+- 板块网格的"AI 最高"从 `all_predictions` 按名称关键词筛选
+
+##### 首页 TOP10 显示逻辑
+
+1. Cron 每次保存时从 Supabase **全量数据**选 TOP10
+2. 优先选满足**全部金色条件**的基金，按 AI 降序取前 10
+3. 金色不足 10 只时，用 AI 最高的补齐
+4. 用 `PATCH` 单独更新 `top10` 字段（避免大 JSON 写入失败）
+5. APP 启动时读 `top10` → `_topFunds` StateFlow → 首页展示
+
+##### 金色基金显示逻辑
+
+**条件（全部满足）：**
+- AI 预测概率 ≥ 70%
+- 置信度 ≥ 4
+- 夏普比率 > 2
+- 最大回撤 < 15%
+- 正收益概率 > 80%
+
+**展示规则：**
+- 基金名称用金色（`#D4AF37`）粗体
+- 所有页面统一从 `vm.aiPredictions[code]` 读取 5 个参数
+- 判断逻辑统一在 `FundHeaderRow` 组件
+- AI 数字本身统一用蓝色（不用金色）
+- 红色/绿色只用于涨跌幅
+
+##### 综合购买策略
+
+| 条件 | 建议 |
+|------|------|
+| 满足全部金色条件 | 强烈推荐配置 |
+| AI 60-70% + 夏普>1.0 + 回撤<20% | 可以考虑 |
+| AI <50% 或 夏普<0.5 或 回撤>30% | 建议回避 |
+
+##### APP 页面数据源对照
+
+| 页面 | 涨跌幅来源 | AI/风险指标来源 | 金色判断来源 |
+|------|-----------|---------------|------------|
+| 首页 TOP10 | `enrichTopFundMonthChange` | `vm.aiPredictions` | `vm.aiPredictions` |
+| 发现页搜索 | 东方财富排行 | `vm.aiPredictions` | `vm.aiPredictions` |
+| 板块基金列表 | 东方财富排行 | `vm.aiPredictions` | `vm.aiPredictions` |
+| 自选页 | Fund 对象 | `vm.aiPredictions` | `vm.aiPredictions` |
+| 持仓页 | 实时估值 | `vm.aiPredictions` | `vm.aiPredictions` |
+| 详情页 | navHistory | `vm.aiPredictions` | `vm.aiPredictions` |
+
+#### 15.6.7 预测优化方案（2026-05 规划）
+
+**已实施：**
+- 回测闭环系统（每日快照 + 30天对账 + 档位胜率聚合）
+
+**待实施（后端算法，用户无感知）：**
+
+| 优化项 | 改动 | 预期提升 |
+|--------|------|---------|
+| Winsorize 极端值 | 单日涨跌 >10% 截尾处理 | 降噪，信号稳定性 +1-2% |
+| 样本均衡 | `class_weight='balanced'` | 减少"单边乐观"偏差 |
+| 低贡献特征剔除 | `feature_importances_ < 0.5%` 的剔除 | 减少过拟合 |
+| Stacking 集成 | LogisticRegression 学最优 GB/RF 权重 | 整体准确率 +2-3% |
+| 滚动训练窗口 | 只用最近 3 年数据训练 | 适配市场风格切换 |
+
+#### 15.6.7 回测闭环系统
+
+**目的：** 让用户看到"AI 说 70% 的基金，历史上真涨了多少次"
+
+**数据流：**
+```
+每天 17:30 → daily_snapshot.py → 存当天所有基金的预测概率+当时净值
+  → fund_prediction_snapshots 表（每天 ~2000 条）
+
+30 天后 → daily_verify.py → 用最新净值对账
+  → 回填 actual_nav_after / actual_return_pct / actual_up
+  → 按档位聚合 → fund_prediction_backtest 表
+
+APP 详情页 → 读 backtest 表 → 展示"历史参考"卡片
+```
+
+**前端展示效果（30天后）：**
+```
+📊 历史参考（同档位 70-80%）
+过去 AI 给出此档位预测 1243 次，实际上涨 722 次，真实胜率 58.1%
+平均实际涨跌 +3.2%
+```
+
+**数据库表：**
+- `fund_prediction_snapshots`：每日快照（主键：snapshot_date + fund_code + horizon_days）
+- `fund_prediction_backtest`：分档位胜率聚合（主键：horizon_days + bucket）
+
+**Render Cron 任务：**
+- `fundpicker-daily-snapshot`：每天 UTC 09:30（北京 17:30）
+- `fundpicker-daily-verify`：每天 UTC 10:00（北京 18:00）
+
+#### 15.6.8 用户购买决策参考
+
+| AI 概率区间 | 含义 | 建议操作 |
+|------------|------|---------|
+| ≥80% | 强看涨信号 | 可重点关注，适合配置 |
+| 70-80%（金色标注） | 偏看涨 | 适度参考，可少量配置 |
+| 60-70% | 中性偏乐观 | 观望为主 |
+| 50-60% | 中性 | 不建议买入 |
+| <50% | 偏看跌 | 回避 |
+
+**辅助判断指标：**
+- 置信度（1-5⭐）：两个模型意见一致程度，≥3⭐更可信
+- 历史胜率：同档位预测的真实历史表现（30天后开始显示）
+- 关键因子：短期动量/RSI/MACD/趋势一致性/波动率/布林带位置
+- 买入时AI → 当前AI：持仓后 AI 变化趋势（↑=看好加强，↓=看好减弱）
+
+**购买决策流程：**
+1. 首页 TOP10 → 快速发现 AI 评分最高的基金
+2. 详情页 → 看 AI 概率 + 置信度 + 历史胜率
+3. AI ≥70% + 置信度 ≥3⭐ + 历史胜率 >55% → 值得配置
+4. 持仓后"当前 AI"持续下降 → 考虑减仓
+
+**重要提醒：** 模型准确率约 55-62%，略优于随机。高概率+高置信度的组合信号更可靠。AI 无法预测黑天鹅事件，建议分散配置。
 
 #### 15.6.6 数据流
 
@@ -553,13 +752,18 @@ Top特征：60日波动率、20日波动率、RSI(28)、均线偏离度、布林
 ```
 FundPicker/backend/
 ├── app/
-│   ├── api_server.py          # FastAPI服务（/trigger-update, /top10, /predict）
+│   ├── api_server.py          # FastAPI服务（/trigger-update, /top10, /predict, /backtest）
 │   ├── data_collector.py      # 数据采集（东方财富pingzhongdata接口）
 │   ├── feature_engineering.py # 38个技术指标特征工程
 │   ├── model_trainer.py       # GB+RF模型训练（Walk-Forward验证）
+│   ├── backtest.py            # 回测闭环（快照+对账+聚合，被api_server调用）
+│   ├── daily_snapshot.py      # 独立cron：每日存预测快照到Supabase
+│   ├── daily_verify.py        # 独立cron：30天后对账+聚合胜率
 │   ├── batch_predict.py       # 批量预测导出JSON
 │   ├── smart_collector.py     # 智能采集（按夏普/回撤筛选）
 │   └── supabase_store.py      # Supabase持久化读写
+├── sql/
+│   └── create_backtest_tables.sql  # 回测表建表SQL
 ├── models/                    # 训练好的模型文件
 │   ├── model_7d/              # 7天预测模型
 │   ├── model_30d/             # 30天预测模型
@@ -572,9 +776,12 @@ FundPicker/backend/
 
 ### 15.9 待开发功能
 
-- [ ] 行业板块分类（新浪财经申万行业分类）
-- [ ] 板块详情页（点击板块→显示该板块下的基金列表）
-- [ ] 扩大训练数据（分层抽样，覆盖涨跌各类基金）
+- [x] 行业板块分类（关键词匹配，23个板块）
+- [x] 板块详情页（点击板块→显示该板块下的基金列表+排序）
+- [x] 扩大预测覆盖（10000只基金批量预测，Supabase持久化）
+- [x] 回测闭环系统（每日快照+30天对账+档位胜率聚合）
+- [x] 指数走势页（上证/深证/创业板/现货黄金 K线图）
+- [ ] 算法优化（Winsorize/样本均衡/Stacking/滚动窗口）
 - [ ] 持仓AI预警（持仓基金趋势变化时推送通知）
 - [ ] 深度学习模型（LSTM/Transformer，需要更大算力）
 
@@ -592,6 +799,8 @@ FundPicker/backend/
 | users | PsyMap用户（微信登录） | 已有 |
 | fund_picker_data | FundPicker用户数据（自选/持仓/偏好） | SQL Editor建表 |
 | fund_predictions | AI预测结果持久化（TOP10+全量预测） | SQL Editor建表 |
+| fund_prediction_snapshots | 每日预测快照（回测对账用） | SQL Editor建表 |
+| fund_prediction_backtest | 分档位胜率聚合（前端展示用） | SQL Editor建表 |
 
 建表SQL（fund_picker_data）：
 ```sql

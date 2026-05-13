@@ -8,7 +8,8 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * 东方财富/天天基金 公开API封装
+ * 基金数据API封装
+ * 数据源：新浪财经（排行/分类）+ 东方财富（净值走势/详情）+ Supabase（AI预测）
  */
 object FundApi {
 
@@ -18,6 +19,154 @@ object FundApi {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
+
+    // ==================== 行业板块定义（参考招商银行/新浪财经分类） ====================
+    val SECTOR_LIST = listOf(
+        "科技" to listOf("科技", "信息", "互联网", "数字经济", "数字", "电子", "计算机",
+            "软件", "通信", "5G", "智联", "智选", "互联", "TMT", "云计算", "大数据",
+            "硬件", "传媒", "游戏", "信创"),
+        "半导体" to listOf("半导体", "芯片", "集成电路", "存储"),
+        "人工智能" to listOf("人工智能", "AI", "智能", "机器人", "算力", "元宇宙"),
+        "医药" to listOf("医药", "医疗", "健康", "生物", "创新药", "中药", "疫苗", "CXO",
+            "医学", "养老"),
+        "新能源" to listOf("新能源", "光伏", "风电", "碳中和", "清洁能源", "绿色电力",
+            "核电", "氢能", "储能"),
+        "消费" to listOf("消费", "食品", "饮料", "白酒", "家电", "零售", "必选", "品牌",
+            "乐享生活", "美好生活", "生活", "乳业", "餐饮", "旅游"),
+        "金融" to listOf("金融", "银行", "证券", "保险", "非银", "资本"),
+        "军工" to listOf("军工", "国防", "航天", "航空", "军事"),
+        "新能车" to listOf("新能车", "汽车", "智能驾驶", "电动车", "锂电", "新能源车"),
+        "制造" to listOf("制造", "工业", "机械", "装备", "智造", "高端制造"),
+        "地产" to listOf("地产", "房地产", "基建", "建筑", "建材"),
+        "资源" to listOf("资源", "有色", "钢铁", "煤炭", "化工", "材料", "稀土", "黄金"),
+        "农业" to listOf("农业", "农林", "养殖", "种业"),
+        "环保" to listOf("环保", "生态", "低碳", "节能"),
+        "港股" to listOf("港股", "恒生", "H股", "沪港深", "港深"),
+        "海外" to listOf("海外", "QDII", "美国", "全球", "亚太", "纳斯达克", "标普",
+            "日本", "德国", "印度", "越南", "东南亚"),
+        "红利" to listOf("红利", "高股息", "分红"),
+        "价值" to listOf("价值", "蓝筹"),
+        "成长" to listOf("成长", "企业成长", "高成长"),
+        "创新" to listOf("创新驱动", "创新成长", "创新动力", "创新"),
+        "指数" to listOf("沪深300", "中证500", "中证1000", "上证50", "指数", "ETF",
+            "50ETF", "沪深", "MSCI"),
+        "债券" to listOf("债券", "纯债", "信用债", "利率债", "可转债"),
+        "混合" to listOf("混合", "灵活配置", "平衡", "均衡", "回报", "精选", "优选",
+            "甄选", "优质", "策略")
+    )
+
+    /** 按行业关键词筛选基金 */
+    fun filterFundsBySector(funds: List<Fund>, sectorName: String): List<Fund> {
+        val keywords = SECTOR_LIST.find { it.first == sectorName }?.second ?: return emptyList()
+        return funds.filter { fund -> keywords.any { kw -> fund.name.contains(kw) } }
+    }
+
+    /** 根据基金名称分类到板块（返回第一个匹配的板块名） */
+    fun classifyFundSector(fundName: String): String {
+        if (fundName.isBlank()) return ""
+        // 按板块顺序匹配（特定优先，比如"半导体"优于"科技"）
+        for ((sector, keywords) in SECTOR_LIST) {
+            if (keywords.any { kw -> fundName.contains(kw) }) {
+                return sector
+            }
+        }
+        return ""
+    }
+
+    /**
+     * 东方财富移动端API获取基金排行（数据最全，支持大量返回）
+     * 然后按关键词筛选
+     */
+    fun fetchFundsByKeywords(
+        keywords: List<String>,
+        onResult: (List<Fund>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        // 获取1000只基金（5页x200只），然后本地按关键词筛选
+        val url = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNRank" +
+                "?fundtype=25&SortColumn=SYL_1N&Sort=desc&pageIndex=1&pageSize=200" +
+                "&deviceid=android&plat=Android&product=EFund&Version=6.0.0"
+        request(url, { body ->
+            try {
+                val map = gson.fromJson<Map<String, Any>>(body,
+                    object : TypeToken<Map<String, Any>>() {}.type)
+                @Suppress("UNCHECKED_CAST")
+                val datas = map["Datas"] as? List<Map<String, Any>> ?: emptyList()
+                val allFunds = datas.map { item ->
+                    Fund(
+                        code = item["FCODE"] as? String ?: "",
+                        name = item["SHORTNAME"] as? String ?: "",
+                        nav = (item["DWJZ"] as? String)?.toDoubleOrNull() ?: 0.0,
+                        dayChange = (item["RZDF"] as? String)?.toDoubleOrNull() ?: 0.0,
+                        weekChange = (item["SYL_Z"] as? String)?.toDoubleOrNull() ?: 0.0,
+                        monthChange = (item["SYL_Y"] as? String)?.toDoubleOrNull() ?: 0.0,
+                        threeMonthChange = (item["SYL_3Y"] as? String)?.toDoubleOrNull() ?: 0.0,
+                        sixMonthChange = (item["SYL_6Y"] as? String)?.toDoubleOrNull() ?: 0.0,
+                        yearChange = (item["SYL_1N"] as? String)?.toDoubleOrNull() ?: 0.0
+                    )
+                }
+                // 按关键词筛选
+                val filtered = allFunds.filter { fund ->
+                    keywords.any { kw -> fund.name.contains(kw) }
+                }
+                Log.d(TAG, "移动端API: ${allFunds.size}只, 筛选后${filtered.size}只")
+                onResult(filtered)
+            } catch (e: Exception) { onError("解析失败: ${e.message}") }
+        }, onError)
+    }
+
+    // ==================== 新浪财经基金排行 ====================
+    /**
+     * @param type2 基金类型: 0=全部, 2=股票型, 3=混合型, 4=债券型, 5=指数型
+     * @param sort 排序: form_year/one_year/six_month/three_month
+     * @param asc 0=降序, 1=升序
+     */
+    fun fetchSinaFundRank(
+        type2: Int = 0,
+        sort: String = "one_year",
+        asc: Int = 0,
+        page: Int = 1,
+        num: Int = 100,
+        onResult: (List<Fund>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val url = "https://vip.stock.finance.sina.com.cn/fund_center/data/jsonp.php/" +
+                "IO.XSRV2.CallbackList/NetValueReturn_Service.NetValueReturnOpen" +
+                "?page=$page&num=$num&sort=$sort&asc=$asc&ccode=&type2=$type2&type3=&type4="
+        val req = Request.Builder().url(url)
+            .addHeader("Referer", "https://finance.sina.com.cn/")
+            .build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError("网络错误: ${e.message}") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.bytes()?.toString(Charsets.UTF_8) ?: ""
+                    val jsonStr = body.substringAfter("CallbackList(").substringBeforeLast(")")
+                    if (jsonStr.isBlank()) { onError("空响应"); return }
+                    val map = gson.fromJson<Map<String, Any>>(jsonStr,
+                        object : TypeToken<Map<String, Any>>() {}.type)
+                    @Suppress("UNCHECKED_CAST")
+                    val dataList = map["data"] as? List<Map<String, Any>> ?: emptyList()
+                    val funds = dataList.map { item ->
+                        Fund(
+                            code = item["symbol"] as? String ?: "",
+                            name = item["sname"] as? String ?: "",
+                            nav = (item["per_nav"] as? String)?.toDoubleOrNull() ?: 0.0,
+                            threeMonthChange = (item["three_month"] as? Double) ?: 0.0,
+                            sixMonthChange = (item["six_month"] as? Double) ?: 0.0,
+                            yearChange = (item["one_year"] as? Double) ?: 0.0,
+                            fundSize = item["zmjgm"] as? String ?: "",
+                            manager = item["jjjl"] as? String ?: ""
+                        )
+                    }
+                    onResult(funds)
+                } catch (e: Exception) {
+                    Log.e(TAG, "新浪基金解析失败", e)
+                    onError("解析失败: ${e.message}")
+                }
+            }
+        })
+    }
 
     // ==================== 基金实时估值 ====================
     fun fetchRealTimeEstimate(
@@ -342,17 +491,57 @@ object FundApi {
         }, onError)
     }
 
-    /** 获取TOP10预测结果 */
+    /** 获取TOP10预测结果（从Supabase） */
     fun fetchTop10(onResult: (List<Map<String, Any>>) -> Unit, onError: (String) -> Unit) {
-        request("$AI_API_BASE/top10", { body ->
-            try {
-                val map = gson.fromJson<Map<String, Any>>(body,
-                    object : TypeToken<Map<String, Any>>() {}.type)
-                @Suppress("UNCHECKED_CAST")
-                val top10 = map["top10"] as? List<Map<String, Any>> ?: emptyList()
-                onResult(top10)
-            } catch (e: Exception) { onError(e.message ?: "") }
-        }, onError)
+        val url = "https://edzsmjegnkrbedqpotgu.supabase.co/rest/v1/fund_predictions?id=eq.latest&select=top10"
+        val req = Request.Builder().url(url)
+            .addHeader("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU")
+            .addHeader("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU")
+            .build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError(e.message ?: "") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.string() ?: ""
+                    val list = gson.fromJson<List<Map<String, Any>>>(body,
+                        object : TypeToken<List<Map<String, Any>>>() {}.type)
+                    @Suppress("UNCHECKED_CAST")
+                    val top10 = list?.firstOrNull()?.get("top10") as? List<Map<String, Any>> ?: emptyList()
+                    Log.d(TAG, "Supabase TOP10: ${top10.size}只")
+                    onResult(top10)
+                } catch (e: Exception) { onError(e.message ?: "") }
+            }
+        })
+    }
+
+    /**
+     * 获取分档位回测胜率（Supabase fund_prediction_backtest 表）
+     * 返回 [{ bucket: "70-80", bucket_min: 70, bucket_max: 80,
+     *       total_count: N, win_count: N, win_rate: 0.58,
+     *       avg_actual_return: 3.2, sample_start_date, sample_end_date }]
+     */
+    fun fetchBacktest(
+        horizon: Int = 30,
+        onResult: (List<Map<String, Any>>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val url = "https://edzsmjegnkrbedqpotgu.supabase.co/rest/v1/fund_prediction_backtest" +
+                "?horizon_days=eq.$horizon&order=bucket_min.asc"
+        val req = Request.Builder().url(url)
+            .addHeader("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU")
+            .addHeader("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU")
+            .build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError(e.message ?: "") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.string() ?: ""
+                    val list = gson.fromJson<List<Map<String, Any>>>(body,
+                        object : TypeToken<List<Map<String, Any>>>() {}.type)
+                    onResult(list ?: emptyList())
+                } catch (e: Exception) { onError(e.message ?: "") }
+            }
+        })
     }
 
     /**
@@ -376,25 +565,42 @@ object FundApi {
 
     // ==================== AI预测结果（从GitHub JSON） ====================
     /**
-     * 从GitHub Pages获取批量预测结果
+     * 从Supabase获取批量预测结果（fund_predictions表）
      */
     fun fetchAiPredictions(
         onResult: (Map<String, Map<String, Any>>) -> Unit,
         onError: (String) -> Unit
     ) {
-        val url = "https://raw.githubusercontent.com/yuyanpsy/psymap/main/docs/predictions.json"
-        request(url, { body ->
-            try {
-                val map = gson.fromJson<Map<String, Any>>(body,
-                    object : TypeToken<Map<String, Any>>() {}.type)
-                @Suppress("UNCHECKED_CAST")
-                val predictions = map["predictions"] as? Map<String, Map<String, Any>> ?: emptyMap()
-                onResult(predictions)
-            } catch (e: Exception) {
-                Log.e(TAG, "解析预测数据失败", e)
-                onError("解析失败: ${e.message}")
+        val url = "https://edzsmjegnkrbedqpotgu.supabase.co/rest/v1/fund_predictions?id=eq.latest&select=all_predictions"
+        val req = Request.Builder().url(url)
+            .addHeader("apikey", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU")
+            .addHeader("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU")
+            .build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e(TAG, "Supabase预测获取失败: ${e.message}")
+                onError("网络错误: ${e.message}")
             }
-        }, onError)
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.string() ?: ""
+                    val list = gson.fromJson<List<Map<String, Any>>>(body,
+                        object : TypeToken<List<Map<String, Any>>>() {}.type)
+                    @Suppress("UNCHECKED_CAST")
+                    val allPreds = list?.firstOrNull()?.get("all_predictions") as? Map<String, Map<String, Any>>
+                    if (allPreds != null && allPreds.isNotEmpty()) {
+                        Log.d(TAG, "Supabase预测加载成功: ${allPreds.size}只基金")
+                        onResult(allPreds)
+                    } else {
+                        Log.w(TAG, "Supabase预测为空")
+                        onError("预测数据为空")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Supabase预测解析失败: ${e.message}")
+                    onError("解析失败: ${e.message}")
+                }
+            }
+        })
     }
 
     // ==================== 基金搜索（精确搜索任意基金） ====================
@@ -565,31 +771,149 @@ object FundApi {
         )
     }
 
-    // ==================== 市场指数 ====================
+    // ==================== 市场指数（新浪财经：A股+伦敦金） ====================
     fun fetchMarketIndices(
         onResult: (List<MarketIndex>) -> Unit,
         onError: (String) -> Unit
     ) {
-        val url = "https://push2.eastmoney.com/api/qt/ulist.np/get" +
-                "?fltt=2&fields=f2,f3,f12,f14&secids=1.000001,0.399001,0.399006"
-        request(url, { body ->
-            try {
-                val map = gson.fromJson<Map<String, Any>>(body,
-                    object : TypeToken<Map<String, Any>>() {}.type)
-                @Suppress("UNCHECKED_CAST")
-                val data = map["data"] as? Map<String, Any>
-                @Suppress("UNCHECKED_CAST")
-                val diff = data?.get("diff") as? List<Map<String, Any>>
-                val indices = diff?.map { item ->
-                    MarketIndex(
-                        name = (item["f14"] as? String) ?: "",
-                        value = (item["f2"] as? Double) ?: 0.0,
-                        changePct = (item["f3"] as? Double) ?: 0.0
+        val url = "https://hq.sinajs.cn/list=s_sh000001,s_sz399001,s_sz399006,hf_XAU"
+        val req = Request.Builder().url(url)
+            .addHeader("Referer", "https://finance.sina.com.cn/")
+            .build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError(e.message ?: "") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.bytes()?.toString(charset("GBK")) ?: ""
+                    val indices = mutableListOf<MarketIndex>()
+                    val nameMap = mapOf(
+                        "sh000001" to "上证指数",
+                        "sz399001" to "深证成指",
+                        "sz399006" to "创业板指"
                     )
-                } ?: emptyList()
-                onResult(indices)
-            } catch (e: Exception) { onError("解析指数数据失败: ${e.message}") }
-        }, onError)
+                    // 两种格式：
+                    // A股指数: hq_str_s_sh000001="上证指数,4167.44,-12.64,-0.30,..."  -> parts[3]=涨跌%
+                    // 伦敦金:  hq_str_hf_XAU="4724.02,4687.050,..."                 -> 自算涨跌%
+                    val regex = Regex("hq_str_([A-Za-z_]+\\w+)=\"([^\"]+)\"")
+                    for (match in regex.findAll(body)) {
+                        val key = match.groupValues[1]
+                        val parts = match.groupValues[2].split(",")
+                        if (parts.size < 4) continue
+                        if (key.startsWith("s_")) {
+                            val code = key.removePrefix("s_")
+                            indices.add(MarketIndex(
+                                name = nameMap[code] ?: parts[0],
+                                value = parts[1].toDoubleOrNull() ?: 0.0,
+                                changePct = parts[3].toDoubleOrNull() ?: 0.0
+                            ))
+                        } else if (key == "hf_XAU") {
+                            val price = parts[0].toDoubleOrNull() ?: 0.0
+                            val prevClose = parts[1].toDoubleOrNull() ?: 0.0
+                            val changePct = if (prevClose > 0) (price - prevClose) / prevClose * 100 else 0.0
+                            if (price > 0) {
+                                indices.add(MarketIndex(
+                                    name = "现货黄金",
+                                    value = price,
+                                    changePct = changePct
+                                ))
+                            }
+                        }
+                    }
+                    Log.d(TAG, "市场指数: ${indices.size}项, ${indices.map { it.name }}")
+                    onResult(indices)
+                } catch (e: Exception) { onError(e.message ?: "") }
+            }
+        })
+    }
+
+    /** 指数日K线数据点 */
+    data class IndexKPoint(
+        val date: String, val open: Double, val high: Double,
+        val low: Double, val close: Double, val volume: Double = 0.0
+    )
+
+    /**
+     * 获取指数/黄金日K线历史（默认30日）
+     * @param symbol A股指数: sh000001/sz399001/sz399006，黄金: XAU
+     */
+    fun fetchIndexKLine(
+        symbol: String,
+        days: Int = 60,
+        onResult: (List<IndexKPoint>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (symbol == "XAU") {
+            // 新浪全球期货接口（伦敦金日K）
+            fetchGoldKLine(days, onResult, onError)
+            return
+        }
+        // A股指数：新浪财经 K线
+        val url = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/" +
+                "CN_MarketData.getKLineData?symbol=$symbol&scale=240&ma=no&datalen=$days"
+        val req = Request.Builder().url(url)
+            .addHeader("Referer", "https://finance.sina.com.cn/").build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError(e.message ?: "") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.string() ?: ""
+                    val list = gson.fromJson<List<Map<String, String>>>(body,
+                        object : TypeToken<List<Map<String, String>>>() {}.type)
+                    val points = list.mapNotNull { item ->
+                        val date = item["day"] ?: return@mapNotNull null
+                        IndexKPoint(
+                            date = date,
+                            open = item["open"]?.toDoubleOrNull() ?: 0.0,
+                            high = item["high"]?.toDoubleOrNull() ?: 0.0,
+                            low = item["low"]?.toDoubleOrNull() ?: 0.0,
+                            close = item["close"]?.toDoubleOrNull() ?: 0.0,
+                            volume = item["volume"]?.toDoubleOrNull() ?: 0.0
+                        )
+                    }
+                    onResult(points)
+                } catch (e: Exception) { onError(e.message ?: "") }
+            }
+        })
+    }
+
+    /** 获取伦敦金日K（新浪期货服务） */
+    private fun fetchGoldKLine(
+        days: Int,
+        onResult: (List<IndexKPoint>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val cal = java.util.Calendar.getInstance()
+        val y = cal.get(java.util.Calendar.YEAR)
+        val m = cal.get(java.util.Calendar.MONTH) + 1
+        val d = cal.get(java.util.Calendar.DAY_OF_MONTH)
+        val varName = "_hq_XAU_${y}_${m}_${d}"
+        val url = "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20$varName=/" +
+                "GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=XAU&_=$y-$m-$d"
+        val req = Request.Builder().url(url)
+            .addHeader("Referer", "https://finance.sina.com.cn/").build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError(e.message ?: "") }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.body?.string() ?: ""
+                    val jsonStr = body.substringAfter("=(").substringBeforeLast(")")
+                    val list = gson.fromJson<List<Map<String, String>>>(jsonStr,
+                        object : TypeToken<List<Map<String, String>>>() {}.type)
+                    val all = list.mapNotNull { item ->
+                        val date = item["date"] ?: return@mapNotNull null
+                        IndexKPoint(
+                            date = date,
+                            open = item["open"]?.toDoubleOrNull() ?: 0.0,
+                            high = item["high"]?.toDoubleOrNull() ?: 0.0,
+                            low = item["low"]?.toDoubleOrNull() ?: 0.0,
+                            close = item["close"]?.toDoubleOrNull() ?: 0.0
+                        )
+                    }
+                    // 取最后 days 天
+                    onResult(if (all.size > days) all.takeLast(days) else all)
+                } catch (e: Exception) { onError(e.message ?: "") }
+            }
+        })
     }
 
     // ==================== 通用请求 ====================
