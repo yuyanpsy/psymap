@@ -347,7 +347,8 @@ fun PhotoImportDialog(vm: PsyMapViewModel, bitmap: Bitmap, onDismiss: () -> Unit
 fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -> Unit,
                             filterTypes: Set<QuestionType> = emptySet(),
                             filterFrequent: Boolean = false, filterMemorize: Boolean = false,
-                            filterChapter: String? = null) {
+                            filterChapter: String? = null,
+                            onStartStudy: () -> Unit = {}) {
     val bank = vm.questionBanks.find { it.id == bankId } ?: return
     val allQuestions = vm.getQuestionsForBank(bankId)
     val questions = allQuestions.filter { q ->
@@ -359,6 +360,7 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
     var showAddQuestion by remember { mutableStateOf(false) }
     var editingBankName by remember { mutableStateOf(false) }
     var newBankName by remember { mutableStateOf(bank.name) }
+    var isStudying by remember { mutableStateOf(false) }
 
     // 多选模式
     var isSelectMode by remember { mutableStateOf(false) }
@@ -368,12 +370,20 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
 
     FullScreenDialog(
         onDismissRequest = {
-            if (isSelectMode) {
+            if (isStudying) {
+                isStudying = false
+            } else if (isSelectMode) {
                 isSelectMode = false
                 selectedIds = emptySet()
             } else onDismiss()
         }
     ) {
+        // 学习模式：使用正式的学习页面
+        if (isStudying && questions.isNotEmpty()) {
+            StudySessionPage(vm = vm, onFinish = { isStudying = false })
+            return@FullScreenDialog
+        }
+
         Card(
             modifier = Modifier
                 .fillMaxSize(),
@@ -562,19 +572,41 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
                     }
                 }
 
-                // 管理员添加题目按钮
-                if (vm.isAdmin && !isSelectMode) {
-                    Button(
-                        onClick = { showAddQuestion = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF6C00))
+                // 底部按钮栏
+                if (!isSelectMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.width(8.dp))
-                        Text("添加题目", color = Color.White, fontWeight = FontWeight.Medium)
+                        // 学习按钮（筛选后的题目可直接学习）
+                        if (questions.isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    vm.startStudySessionWithQuestions(questions.map { it.id })
+                                    isStudying = true
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
+                                Spacer(Modifier.width(4.dp))
+                                Text("学习 (${questions.size}题)", color = Color.White, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                        // 管理员添加题目按钮
+                        if (vm.isAdmin) {
+                            Button(
+                                onClick = { showAddQuestion = true },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF6C00))
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
+                                Spacer(Modifier.width(4.dp))
+                                Text("添加题目", color = Color.White, fontWeight = FontWeight.Medium)
+                            }
+                        }
                     }
                 }
             }
@@ -614,7 +646,9 @@ fun QuestionBankDetailSheet(vm: PsyMapViewModel, bankId: String, onDismiss: () -
         AddQuestionDialog(
             bankId = bankId,
             vm = vm,
-            onDismiss = { showAddQuestion = false }
+            onDismiss = { showAddQuestion = false },
+            defaultChapter = filterChapter ?: "",
+            defaultType = filterTypes.firstOrNull()
         )
     }
 
@@ -953,15 +987,16 @@ fun QuestionDetailDialog(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit) {
+fun AddQuestionDialog(bankId: String, vm: PsyMapViewModel, onDismiss: () -> Unit,
+                      defaultChapter: String = "", defaultType: QuestionType? = null) {
     var content by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
     var explanationText by remember { mutableStateOf("") }
     val bank = vm.questionBanks.find { it.id == bankId }
     val availableTypes = bank?.subject?.availableQuestionTypes() ?: QuestionType.entries
-    var selectedType by remember { mutableStateOf(availableTypes.first()) }
+    var selectedType by remember { mutableStateOf(defaultType ?: availableTypes.first()) }
     var optionsText by remember { mutableStateOf("") }
-    var chapter by remember { mutableStateOf("") }
+    var chapter by remember { mutableStateOf(defaultChapter) }
     var isFrequent by remember { mutableStateOf(false) }
     var isMemorize by remember { mutableStateOf(false) }
 

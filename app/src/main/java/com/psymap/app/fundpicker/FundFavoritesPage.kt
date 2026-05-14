@@ -42,8 +42,8 @@ fun FundFavoritesPage(vm: FundPickerViewModel, onFundClick: (Fund) -> Unit) {
                         modifier = Modifier.padding(16.dp).fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        val up = favorites.count { it.dayChange > 0 }
-                        val down = favorites.count { it.dayChange < 0 }
+                        val up = favorites.count { it.dayChange > 0 || (it.dayChange == 0.0 && it.weekChange > 0) }
+                        val down = favorites.count { it.dayChange < 0 || (it.dayChange == 0.0 && it.weekChange < 0) }
                         val flat = favorites.size - up - down
                         StatItem("关注", "${favorites.size}", FundTextPrimary)
                         StatItem("今日涨", "$up", FundRed)

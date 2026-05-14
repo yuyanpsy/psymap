@@ -1,6 +1,7 @@
 package com.psymap.app.literature
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -75,16 +76,13 @@ fun LiteratureApp(
                             showReader = true
                         }
                     )
-                    LitTab.READER -> {
-                        if (vm.selectedLiterature != null) {
-                            PdfReaderPage(vm = vm, onBack = { currentTab = LitTab.LIBRARY })
-                        } else {
-                            LiteratureLibraryPage(vm = vm, onOpenPdf = { lit ->
-                                vm.selectLiterature(lit)
-                                showReader = true
-                            })
+                    LitTab.READER -> ReaderListPage(
+                        vm = vm,
+                        onOpenPdf = { lit ->
+                            vm.selectLiterature(lit)
+                            showReader = true
                         }
-                    }
+                    )
                     LitTab.AI -> AiAssistantPage(vm = vm)
                 }
             }
@@ -147,3 +145,52 @@ private fun litNavColors() = NavigationBarItemDefaults.colors(
     unselectedIconColor = Color(0xFF999999),
     unselectedTextColor = Color(0xFF999999)
 )
+
+// ==================== 阅读列表页 ====================
+@Composable
+fun ReaderListPage(vm: LiteratureViewModel, onOpenPdf: (Literature) -> Unit) {
+    val pdfLiteratures = vm.literatures.filter { it.pdfPath.isNotBlank() }
+
+    if (pdfLiteratures.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(64.dp), tint = androidx.compose.ui.graphics.Color(0xFFCCCCCC))
+                Spacer(Modifier.height(12.dp))
+                Text("暂无可阅读的PDF文献", color = androidx.compose.ui.graphics.Color.Gray, fontSize = 14.sp)
+                Text("请先导入PDF文件", color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), fontSize = 12.sp)
+            }
+        }
+    } else {
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+        ) {
+            items(pdfLiteratures.size) { index ->
+                val lit = pdfLiteratures[index]
+                val annotationCount = vm.getAnnotationsForLiterature(lit.id).size
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { onOpenPdf(lit) },
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.White),
+                    elevation = CardDefaults.cardElevation(1.dp)
+                ) {
+                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFFD32F2F), modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(lit.title, fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 2)
+                            if (lit.authors.isNotEmpty()) {
+                                Text(lit.authors.joinToString(", "), fontSize = 11.sp, color = androidx.compose.ui.graphics.Color(0xFF888888), maxLines = 1)
+                            }
+                            if (annotationCount > 0) {
+                                Text("$annotationCount 条笔记", fontSize = 11.sp, color = androidx.compose.ui.graphics.Color(0xFFEF6C00))
+                            }
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Gray)
+                    }
+                }
+            }
+        }
+    }
+}

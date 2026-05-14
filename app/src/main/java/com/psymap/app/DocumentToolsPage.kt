@@ -70,7 +70,7 @@ fun DocumentToolsPage(onBack: () -> Unit) {
 
             ToolCard(
                 icon = Icons.Default.SwapHoriz,
-                title = "Word ↔ PDF 转换",
+                title = "Word ↔ PDF",
                 desc = "Word转PDF / PDF转Word",
                 onClick = { currentTool = DocTool.CONVERT }
             )
@@ -570,7 +570,7 @@ private fun SingleFileToolDialog(title: String, fileTypes: Array<String>, onDism
 
 // ==================== 媒体压缩参数 ====================
 data class CompressParams(
-    val targetSizeMB: Int = 10,
+    val targetSizeMB: Float = 10f,
     val targetWidth: Int = 0,  // 0=保持原始
     val targetHeight: Int = 0,
     val targetFps: Int = 0,    // 0=保持原始，仅视频
@@ -661,7 +661,7 @@ private fun MediaCompressDialog(onDismiss: () -> Unit, onProcess: (Uri, Compress
                 // 读取文件大小
                 context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
                     val sizeMB = fd.statSize / 1024.0 / 1024.0
-                    targetSizeMB = maxOf(1, (sizeMB * 0.5).toInt()).toString() // 默认压缩到50%
+                    targetSizeMB = String.format("%.1f", maxOf(0.01, sizeMB * 0.5)) // 默认压缩到50%
                 }
             } catch (_: Exception) {}
         }
@@ -689,7 +689,7 @@ private fun MediaCompressDialog(onDismiss: () -> Unit, onProcess: (Uri, Compress
                     // 目标大小（所有类型都有）
                     OutlinedTextField(
                         value = targetSizeMB,
-                        onValueChange = { targetSizeMB = it.filter { c -> c.isDigit() } },
+                        onValueChange = { targetSizeMB = it.filter { c -> c.isDigit() || c == '.' } },
                         label = { Text("目标大小 (MB)") },
                         singleLine = true, modifier = Modifier.fillMaxWidth()
                     )
@@ -788,7 +788,7 @@ private fun MediaCompressDialog(onDismiss: () -> Unit, onProcess: (Uri, Compress
                 onClick = {
                     selectedUri?.let {
                         onProcess(it, CompressParams(
-                            targetSizeMB = targetSizeMB.toIntOrNull() ?: 10,
+                            targetSizeMB = targetSizeMB.toFloatOrNull() ?: 10f,
                             targetWidth = targetWidth.toIntOrNull() ?: 0,
                             targetHeight = targetHeight.toIntOrNull() ?: 0,
                             targetFps = targetFps.toIntOrNull() ?: 0,

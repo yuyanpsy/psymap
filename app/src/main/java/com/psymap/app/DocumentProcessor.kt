@@ -774,7 +774,7 @@ object DocumentProcessor {
         }
 
         // 用二分法找到最接近目标大小的质量
-        val targetBytes = params.targetSizeMB * 1024L * 1024L
+        val targetBytes = (params.targetSizeMB * 1024 * 1024).toLong()
         var low = 10
         var high = 95
         var bestBytes: ByteArray? = null
@@ -833,7 +833,7 @@ object DocumentProcessor {
 
             // 计算目标比特率（根据目标文件大小）
             val targetBitrate = if (params.targetSizeMB > 0 && durationMs > 0) {
-                val targetBits = params.targetSizeMB.toLong() * 1024 * 1024 * 8
+                val targetBits = (params.targetSizeMB * 1024 * 1024 * 8).toLong()
                 val durationSec = durationMs / 1000.0
                 // 预留10%给音频
                 ((targetBits * 0.9) / durationSec).toInt().coerceIn(500_000, 50_000_000)

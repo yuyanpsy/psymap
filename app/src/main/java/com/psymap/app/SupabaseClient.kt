@@ -103,8 +103,20 @@ object SupabaseClient {
 
     // ========== 用户登录/注册 ==========
     suspend fun loginOrRegister(nickname: String, wechatOpenId: String = "", deviceId: String = ""): String? {
-        // 优先用 device_id 查找（卸载重装后恢复）
-        if (deviceId.isNotBlank()) {
+        // 优先用 wechat_open_id 查找（微信登录的唯一标识）
+        if (wechatOpenId.isNotBlank()) {
+            val existing = get("users", "?wechat_open_id=eq.$wechatOpenId&select=*&limit=1")
+            val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
+            if (!list.isNullOrEmpty()) {
+                userId = list[0]["id"] as? String
+                // 更新 device_id
+                if (deviceId.isNotBlank()) patch("users", "?id=eq.$userId", gson.toJson(mapOf("device_id" to deviceId)))
+                Log.d("PsyMap-Sync", "通过wechat_open_id找到用户: $userId")
+                return userId
+            }
+        }
+        // 再用 device_id 查找（未绑定微信时的设备级恢复）
+        if (deviceId.isNotBlank() && wechatOpenId.isBlank()) {
             val existing = get("users", "?device_id=eq.$deviceId&select=*&limit=1")
             val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
             if (!list.isNullOrEmpty()) {
@@ -113,18 +125,7 @@ object SupabaseClient {
                 return userId
             }
         }
-        // 再用 wechat_open_id 查找
-        if (wechatOpenId.isNotBlank()) {
-            val existing = get("users", "?wechat_open_id=eq.$wechatOpenId&select=*&limit=1")
-            val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
-            if (!list.isNullOrEmpty()) {
-                userId = list[0]["id"] as? String
-                // 更新 device_id
-                if (deviceId.isNotBlank()) patch("users", "?id=eq.$userId", gson.toJson(mapOf("device_id" to deviceId)))
-                return userId
-            }
-        }
-        // 再用 nickname 查找
+        // 再用 nickname 查找（兼容旧版）
         val existing = get("users", "?nickname=eq.$nickname&select=*&limit=1")
         val list = try { gson.fromJson<List<Map<String, Any>>>(existing, object : TypeToken<List<Map<String, Any>>>() {}.type) } catch (e: Exception) { null }
         if (!list.isNullOrEmpty()) {

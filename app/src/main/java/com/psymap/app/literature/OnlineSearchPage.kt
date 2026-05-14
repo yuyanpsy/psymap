@@ -43,11 +43,18 @@ fun OnlineSearchPage(vm: LiteratureViewModel, onBack: () -> Unit) {
             ) {
                 OutlinedTextField(
                     value = query, onValueChange = { query = it },
-                    placeholder = { Text("搜索关键词...", fontSize = 13.sp) },
+                    placeholder = { Text("搜索关键词...", fontSize = 14.sp) },
                     singleLine = true,
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp),
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (query.isNotBlank()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(18.dp), tint = Color.Gray)
+                            }
+                        }
+                    },
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedBorderColor = Color(0xFFE0E0E0),
@@ -113,10 +120,21 @@ fun OnlineSearchPage(vm: LiteratureViewModel, onBack: () -> Unit) {
                         }
                     }
                     items(vm.onlineSearchResults) { result ->
-                        OnlineResultItem(result = result, onAdd = {
-                            vm.addLiterature(result)
-                            Toast.makeText(context, "已添加: ${result.title.take(30)}", Toast.LENGTH_SHORT).show()
-                        })
+                        OnlineResultItem(
+                            result = result,
+                            onAdd = {
+                                vm.addLiterature(result)
+                                Toast.makeText(context, "已添加: ${result.title.take(30)}", Toast.LENGTH_SHORT).show()
+                            },
+                            onDownload = {
+                                if (result.doi.isNotBlank()) {
+                                    vm.downloadPdf(context, result)
+                                    Toast.makeText(context, "正在尝试下载PDF...", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "无DOI，无法下载", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -125,7 +143,7 @@ fun OnlineSearchPage(vm: LiteratureViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun OnlineResultItem(result: Literature, onAdd: () -> Unit) {
+private fun OnlineResultItem(result: Literature, onAdd: () -> Unit, onDownload: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
         shape = RoundedCornerShape(8.dp),
@@ -133,7 +151,7 @@ private fun OnlineResultItem(result: Literature, onAdd: () -> Unit) {
         elevation = CardDefaults.cardElevation(1.dp)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 40.dp)) {
+            Column(modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 44.dp)) {
                 Text(result.title, fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(3.dp))
                 if (result.authors.isNotEmpty()) {
@@ -151,12 +169,17 @@ private fun OnlineResultItem(result: Literature, onAdd: () -> Unit) {
                     }
                 }
             }
-            // 右上角 + 按钮
-            IconButton(
-                onClick = onAdd,
-                modifier = Modifier.align(Alignment.TopEnd).size(32.dp)
+            // 右侧操作按钮
+            Column(
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(Icons.Default.AddCircle, contentDescription = "添加", tint = Color(0xFFEF6C00), modifier = Modifier.size(22.dp))
+                IconButton(onClick = onAdd, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.AddCircle, contentDescription = "添加", tint = Color(0xFFEF6C00), modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onDownload, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.Download, contentDescription = "下载PDF", tint = Color(0xFF1976D2), modifier = Modifier.size(18.dp))
+                }
             }
         }
     }

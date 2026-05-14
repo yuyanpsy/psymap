@@ -552,22 +552,23 @@ class FundRepository(context: Context) {
         prefs.edit().putString("transactions", gson.toJson(txns)).apply()
     }
 
-    fun simulateBuy(fundCode: String, amount: Double, buyAiScore: Int = 0): Boolean {
+    fun simulateBuy(fundCode: String, amount: Double, buyAiScore: Int = 0, overrideNav: Double = 0.0): Boolean {
         val fund = getFundByCode(fundCode) ?: return false
-        if (fund.nav <= 0) return false
-        val shares = amount / fund.nav
+        val nav = if (fund.nav > 0) fund.nav else overrideNav
+        if (nav <= 0) return false
+        val shares = amount / nav
         val positions = getPositions().toMutableList()
         val existing = positions.find { it.fundCode == fundCode }
 
         if (existing != null) {
             val newShares = existing.shares + shares
             val newCost = existing.costAmount + amount
-            val currentValue = newShares * fund.nav
+            val currentValue = newShares * nav
             val idx = positions.indexOf(existing)
             positions[idx] = existing.copy(
                 shares = newShares, costAmount = newCost,
                 avgCostNav = newCost / newShares,
-                currentNav = fund.nav, currentValue = currentValue,
+                currentNav = nav, currentValue = currentValue,
                 profit = currentValue - newCost,
                 profitPct = (currentValue - newCost) / newCost * 100
                 // buyDate 和 buyAiScore 保持首次买入不变
@@ -576,7 +577,7 @@ class FundRepository(context: Context) {
             positions.add(PortfolioPosition(
                 fundCode = fundCode, fundName = fund.name,
                 costAmount = amount, currentValue = amount,
-                shares = shares, avgCostNav = fund.nav, currentNav = fund.nav,
+                shares = shares, avgCostNav = nav, currentNav = nav,
                 profit = 0.0, profitPct = 0.0, weightPct = 0.0,
                 buyDate = dateFormat.format(java.util.Date()),
                 buyAiScore = buyAiScore
@@ -588,7 +589,7 @@ class FundRepository(context: Context) {
         val txns = getTransactions().toMutableList()
         txns.add(0, Transaction(
             id = UUID.randomUUID().toString(), fundCode = fundCode, fundName = fund.name,
-            type = "buy", amount = amount, shares = shares, nav = fund.nav,
+            type = "buy", amount = amount, shares = shares, nav = nav,
             createdAt = dateTimeFormat.format(Date())
         ))
         saveTransactions(txns)

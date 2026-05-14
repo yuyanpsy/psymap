@@ -532,7 +532,13 @@ class FundPickerViewModel(app: Application) : AndroidViewModel(app) {
         val currentAi = _aiPredictions.value[fundCode]?.let { pred ->
             if (pred.containsKey("probability")) (pred["probability"] as? Double)?.toInt() ?: 0 else 0
         } ?: 0
-        val ok = repo.simulateBuy(fundCode, amount, currentAi)
+        // 获取实时估值净值作为 fallback（当缓存 nav=0 时使用）
+        val estimateNav = _estimate.value?.estimateNav ?: 0.0
+        val navHistory = _navHistory.value
+        val fallbackNav = if (estimateNav > 0) estimateNav
+            else if (navHistory.isNotEmpty()) navHistory.last().nav
+            else 0.0
+        val ok = repo.simulateBuy(fundCode, amount, currentAi, fallbackNav)
         if (ok) { refreshPortfolio(); pushToCloud() }
         return ok
     }

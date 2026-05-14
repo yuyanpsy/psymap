@@ -135,8 +135,8 @@ fun LiteratureLibraryPage(vm: LiteratureViewModel, onOpenPdf: (Literature) -> Un
                     )
                 )
             }
-            IconButton(onClick = { showGroupManager = true }, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.Add, contentDescription = "管理分组", modifier = Modifier.size(18.dp), tint = Color(0xFFEF6C00))
+            IconButton(onClick = { showGroupManager = true }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Settings, contentDescription = "管理分组", modifier = Modifier.size(20.dp), tint = Color(0xFFEF6C00))
             }
         }
 
@@ -314,6 +314,8 @@ private fun DoiImportDialog(vm: LiteratureViewModel, onDismiss: () -> Unit) {
 @Composable
 private fun GroupManagerDialog(vm: LiteratureViewModel, onDismiss: () -> Unit) {
     var newGroupName by remember { mutableStateOf("") }
+    var editingGroupId by remember { mutableStateOf<String?>(null) }
+    var editingName by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -334,11 +336,29 @@ private fun GroupManagerDialog(vm: LiteratureViewModel, onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.height(12.dp))
                 vm.groups.forEach { group ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(group.name, modifier = Modifier.weight(1f), fontSize = 14.sp)
-                        Text("${vm.literatures.count { it.groupId == group.id }}篇", fontSize = 12.sp, color = Color.Gray)
-                        IconButton(onClick = { vm.deleteGroup(group.id) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(16.dp), tint = Color(0xFFD32F2F))
+                    if (editingGroupId == group.id) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = editingName, onValueChange = { editingName = it },
+                                singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(6.dp)
+                            )
+                            IconButton(onClick = { vm.renameGroup(group.id, editingName); editingGroupId = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Check, contentDescription = "确认", modifier = Modifier.size(16.dp), tint = Color(0xFF4CAF50))
+                            }
+                            IconButton(onClick = { editingGroupId = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "取消", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            }
+                        }
+                    } else {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(group.name, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                            Text("${vm.literatures.count { it.groupId == group.id }}篇", fontSize = 12.sp, color = Color.Gray)
+                            IconButton(onClick = { editingGroupId = group.id; editingName = group.name }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Edit, contentDescription = "改名", modifier = Modifier.size(16.dp), tint = Color(0xFFEF6C00))
+                            }
+                            IconButton(onClick = { vm.deleteGroup(group.id) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(16.dp), tint = Color(0xFFD32F2F))
+                            }
                         }
                     }
                 }

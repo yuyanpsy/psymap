@@ -13,8 +13,8 @@ android {
         applicationId = "com.psymap.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.1.1"
+        versionCode = 10
+        versionName = "0.2.0"
 
         // 只打包 arm64 架构，减小 APK 体积（现代手机都是 arm64）
         ndk {

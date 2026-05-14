@@ -60,15 +60,26 @@ fun FundPickerApp(
 
         // 板块基金列表页
         if (showSectorFunds != null) {
-            SectorFundListPage(
-                sectorName = showSectorFunds!!,
-                vm = vm,
-                onBack = { showSectorFunds = null },
-                onFundClick = { fund ->
-                    vm.selectFund(fund)
-                    showDetail = true
-                }
-            )
+            if (showSectorFunds == "__golden__") {
+                GoldenFundListPage(
+                    vm = vm,
+                    onBack = { showSectorFunds = null },
+                    onFundClick = { fund ->
+                        vm.selectFund(fund)
+                        showDetail = true
+                    }
+                )
+            } else {
+                SectorFundListPage(
+                    sectorName = showSectorFunds!!,
+                    vm = vm,
+                    onBack = { showSectorFunds = null },
+                    onFundClick = { fund ->
+                        vm.selectFund(fund)
+                        showDetail = true
+                    }
+                )
+            }
             return@MaterialTheme
         }
 

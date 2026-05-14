@@ -167,9 +167,37 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                         .filter { e -> socialChapters.any { e.chapter.contains(it) } }
                     if (toDelete.isNotEmpty()) {
                         questionDao.deleteByIds(toDelete.map { it.id })
+                        // 同步删除到云端
+                        try { SupabaseClient.deleteQuestions(toDelete.map { it.id }) } catch (_: Exception) {}
                     }
                 }
                 prefs.edit().putBoolean("migration_delete_social_v1", true).apply()
+            }
+            // v2: 确保社会心理学章节从云端也彻底删除
+            if (!prefs.getBoolean("migration_delete_social_v2", false)) {
+                val personalityBank = questionBanks.find { it.subject == Subject.PERSONALITY }
+                if (personalityBank != null) {
+                    val socialChapters = listOf("社会思维", "社会关系", "社会影响", "应用社会心理学")
+                    // 从Room删除（如果还有残留）
+                    val toDelete = questionDao.getByBankId(personalityBank.id)
+                        .filter { e -> socialChapters.any { e.chapter.contains(it) } }
+                    if (toDelete.isNotEmpty()) {
+                        questionDao.deleteByIds(toDelete.map { it.id })
+                    }
+                    // 强制从云端删除这些章节的题目
+                    try {
+                        val cloudData = SupabaseClient.pullAll()
+                        val cloudToDelete = cloudData.questions
+                            .filter { q -> q.bankId == personalityBank.id && socialChapters.any { q.chapter.contains(it) } }
+                        if (cloudToDelete.isNotEmpty()) {
+                            SupabaseClient.deleteQuestions(cloudToDelete.map { it.id })
+                            Log.d("PsyMap-Migration", "v2: 从云端删除社会心理学题目 ${cloudToDelete.size} 道")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("PsyMap-Migration", "v2: 云端删除失败: ${e.message}")
+                    }
+                }
+                prefs.edit().putBoolean("migration_delete_social_v2", true).apply()
             }
             val allQuestions = questionDao.getAll().map { it.toDomain() }
             val cleanQuestions = allQuestions.filter { !it.bankId.startsWith("__") }
@@ -181,6 +209,22 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 saveBanks()
                 dataLoading = false
+
+                // 一次性修复：打卡记录补全
+                val fixDates = listOf("2026-04-06", "2026-04-19", "2026-04-28", "2026-05-12")
+                val totalTargetFix = dailyTargets.values.filter { it > 0 }.sum().takeIf { it > 0 } ?: 1
+                var fixed = false
+                for (date in fixDates) {
+                    val existing = checkInRecords.find { it.date == date }
+                    if (existing == null || existing.completedCount < (existing.targetCount.takeIf { it > 0 } ?: totalTargetFix)) {
+                        val patched = existing?.copy(completedCount = totalTargetFix, targetCount = totalTargetFix)
+                            ?: DailyCheckIn(date = date, completedCount = totalTargetFix, targetCount = totalTargetFix)
+                        checkInRecords = checkInRecords.filter { it.date != date } + patched
+                        syncToCloud { SupabaseClient.upsertCheckIn(patched) }
+                        fixed = true
+                    }
+                }
+                if (fixed) { saveCheckIns(); refreshCheckInStats() }
             }
         }
     }
@@ -244,7 +288,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         loadDataFast()
 
         // 一次性修复：打卡记录补全（必须在 dailyTargets 加载之后）
-        val fixDates = listOf("2026-04-06", "2026-04-19", "2026-04-28")
+        val fixDates = listOf("2026-04-06", "2026-04-19", "2026-04-28", "2026-05-12")
         val totalTargetFix = dailyTargets.values.filter { it > 0 }.sum()
         if (totalTargetFix > 0) {
             var fixed = false
@@ -507,7 +551,15 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     lastPushedHash = localDataHash
 
                     // 合并后推送回云端（确保云端也有本地独有的数据）
+                    // 同时删除云端多余的题目（本地已删除的）
                     syncToCloud {
+                        // 找出云端有但本地没有的题目ID → 从云端删除
+                        val localIds = questions.map { it.id }.toSet()
+                        val cloudOnlyIds = data.questions.map { it.id }.filter { it !in localIds }
+                        if (cloudOnlyIds.isNotEmpty()) {
+                            SupabaseClient.deleteQuestions(cloudOnlyIds)
+                            Log.d("PsyMap-Sync", "从云端删除 ${cloudOnlyIds.size} 道本地已删除的题目")
+                        }
                         SupabaseClient.pushAll(
                             questionBanks, questions, checkInRecords, dailyTargets,
                             targetScores["政治"] ?: 0, targetScores["英语"] ?: 0, targetScores["专业综合"] ?: 0,
@@ -771,6 +823,10 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
         questions = questions.filter { it.id !in questionIds }
         affectedBankIds.forEach { updateBankCount(it) }
         saveQuestions()
+        // 从 Room DB 中也删除
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            questionDao.deleteByIds(questionIds.toList())
+        }
         syncToCloud { SupabaseClient.deleteQuestions(questionIds.toList()) }
     }
 

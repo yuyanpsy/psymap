@@ -139,19 +139,37 @@ class LiteratureViewModel(app: Application) : AndroidViewModel(app) {
             val text = stripper.getText(doc)
             doc.close()
 
-            // 尝试从文本中提取标题（通常是第一行非空文本）
-            val lines = text.lines().filter { it.isNotBlank() }
-            val title = info?.title?.takeIf { it.isNotBlank() }
-                ?: lines.firstOrNull()?.take(200) ?: "未知标题"
-            val authors = info?.author?.split(",", ";", "and", "、")?.map { it.trim() } ?: emptyList()
-
             // 尝试提取DOI
-            val doiRegex = Regex("""10\.\d{4,}/[^\s]+""")
-            val doi = doiRegex.find(text)?.value ?: ""
+            val doiRegex = Regex("""10\.\d{4,}/[^\s,;)}\]]+""")
+            val doi = doiRegex.find(text)?.value?.trimEnd('.', ',') ?: ""
 
-            // 提取摘要（查找 Abstract 关键词后的内容）
-            val abstractRegex = Regex("""(?i)(abstract|摘\s*要)[:\s：]*(.{50,800})""")
-            val abstractText = abstractRegex.find(text)?.groupValues?.getOrNull(2)?.trim() ?: ""
+            // 如果有DOI，优先从CrossRef获取准确元数据
+            if (doi.isNotBlank()) {
+                val crossRefLit = fetchFromCrossRef(doi)
+                if (crossRefLit != null) {
+                    return crossRefLit.copy(pdfPath = pdfFile.absolutePath, source = "PDF导入(DOI)")
+                }
+            }
+
+            // fallback: 从PDF文本提取
+            val lines = text.lines().filter { it.isNotBlank() && it.length > 3 }
+            // 跳过明显的页眉/页码行（短行、纯数字、包含常见页眉关键词）
+            val titleCandidates = lines.filter { line ->
+                line.length > 10 &&
+                !line.matches(Regex("""^\d+\s*$""")) &&
+                !line.contains("Downloaded from") &&
+                !line.contains("http") &&
+                !line.contains("©") &&
+                !line.contains("Vol.") &&
+                !line.contains("doi:")
+            }
+            val title = info?.title?.takeIf { it.isNotBlank() && it.length > 5 }
+                ?: titleCandidates.firstOrNull()?.take(200) ?: "未知标题"
+            val authors = info?.author?.split(",", ";", "and", "、")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+
+            // 提取摘要
+            val abstractRegex = Regex("""(?i)(abstract|摘\s*要)[:\s：]*(.{50,1500})""", RegexOption.DOT_MATCHES_ALL)
+            val abstractText = abstractRegex.find(text)?.groupValues?.getOrNull(2)?.trim()?.take(800) ?: ""
 
             Literature(
                 title = title,
@@ -332,6 +350,137 @@ class LiteratureViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 下载PDF（优先Unpaywall开放获取，fallback到浏览器） */
+    fun downloadPdf(context: Context, lit: Literature) {
+        if (lit.doi.isBlank()) return
+        viewModelScope.launch {
+            isLoading = true
+            val result = withContext(Dispatchers.IO) {
+                tryDownloadPdf(context, lit.doi, lit.title)
+            }
+            isLoading = false
+            if (result != null) {
+                // 下载成功，更新文献的pdfPath
+                val existing = literatures.find { it.doi == lit.doi && it.doi.isNotBlank() }
+                if (existing != null) {
+                    updateLiterature(existing.copy(pdfPath = result))
+                }
+                android.widget.Toast.makeText(context, "PDF下载成功", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                // fallback: 打开浏览器
+                val url = "https://doi.org/${lit.doi}"
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                context.startActivity(intent)
+                android.widget.Toast.makeText(context, "无开放获取版本，已跳转浏览器", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun tryDownloadPdf(context: Context, doi: String, title: String): String? {
+        // 1. 尝试 Unpaywall API（免费开放获取数据库）
+        try {
+            val url = "https://api.unpaywall.org/v2/$doi?email=psymap@example.com"
+            val request = okhttp3.Request.Builder().url(url).build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true).build()
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val json = response.body?.string() ?: ""
+                val map = gson.fromJson(json, Map::class.java) ?: emptyMap<String, Any>()
+                // 获取最佳开放获取PDF链接
+                val bestOa = map["best_oa_location"] as? Map<*, *>
+                val pdfUrl = bestOa?.get("url_for_pdf")?.toString()
+                    ?: bestOa?.get("url")?.toString()
+
+                if (pdfUrl != null && pdfUrl.isNotBlank()) {
+                    val downloaded = downloadFileToLocal(context, pdfUrl, title)
+                    if (downloaded != null) return downloaded
+                }
+
+                // 尝试其他 oa_locations
+                val oaLocations = map["oa_locations"] as? List<*>
+                oaLocations?.forEach { loc ->
+                    val locMap = loc as? Map<*, *> ?: return@forEach
+                    val locPdfUrl = locMap["url_for_pdf"]?.toString() ?: locMap["url"]?.toString()
+                    if (locPdfUrl != null && (locPdfUrl.endsWith(".pdf") || locPdfUrl.contains("pdf"))) {
+                        val downloaded = downloadFileToLocal(context, locPdfUrl, title)
+                        if (downloaded != null) return downloaded
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Unpaywall查询失败: ${e.message}")
+        }
+
+        // 2. 尝试 CORE API（开放获取聚合）
+        try {
+            val encoded = java.net.URLEncoder.encode(doi, "UTF-8")
+            val url = "https://api.core.ac.uk/v3/search/works?q=doi:$encoded&limit=1"
+            val request = okhttp3.Request.Builder().url(url)
+                .addHeader("Authorization", "Bearer free") // CORE free tier
+                .build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS).build()
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val json = response.body?.string() ?: ""
+                val map = gson.fromJson(json, Map::class.java)
+                val results = (map["results"] as? List<*>)
+                val first = results?.firstOrNull() as? Map<*, *>
+                val downloadUrl = first?.get("downloadUrl")?.toString()
+                if (downloadUrl != null && downloadUrl.isNotBlank()) {
+                    val downloaded = downloadFileToLocal(context, downloadUrl, title)
+                    if (downloaded != null) return downloaded
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "CORE查询失败: ${e.message}")
+        }
+
+        return null
+    }
+
+    private fun downloadFileToLocal(context: Context, pdfUrl: String, title: String): String? {
+        return try {
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true).build()
+            val request = okhttp3.Request.Builder().url(pdfUrl)
+                .addHeader("User-Agent", "Mozilla/5.0 PsyMap/1.0")
+                .build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return null
+
+            val contentType = response.header("Content-Type") ?: ""
+            // 确认是PDF
+            if (!contentType.contains("pdf") && !pdfUrl.endsWith(".pdf")) {
+                response.body?.close()
+                return null
+            }
+
+            val litDir = File(context.getExternalFilesDir(null), "literature").apply { mkdirs() }
+            val safeName = title.take(50).replace(Regex("[^\\w\\s-]"), "").trim().replace("\\s+".toRegex(), "_")
+            val pdfFile = File(litDir, "${safeName}_${System.currentTimeMillis()}.pdf")
+            response.body?.byteStream()?.use { input ->
+                pdfFile.outputStream().use { output -> input.copyTo(output, 8192) }
+            }
+
+            if (pdfFile.length() > 1000) { // 至少1KB才算有效PDF
+                pdfFile.absolutePath
+            } else {
+                pdfFile.delete()
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "下载PDF失败: ${e.message}")
+            null
+        }
+    }
+
     // ==================== 文献整理 ====================
 
     fun createGroup(name: String, color: String = "#EF6C00") {
@@ -343,6 +492,12 @@ class LiteratureViewModel(app: Application) : AndroidViewModel(app) {
         groups = groups.filter { it.id != id }
         // 清除文献的分组引用
         literatures = literatures.map { if (it.groupId == id) it.copy(groupId = "") else it }
+        saveData()
+    }
+
+    fun renameGroup(id: String, newName: String) {
+        if (newName.isBlank()) return
+        groups = groups.map { if (it.id == id) it.copy(name = newName) else it }
         saveData()
     }
 
@@ -611,46 +766,86 @@ class LiteratureViewModel(app: Application) : AndroidViewModel(app) {
 
     // ==================== AI 功能 ====================
 
-    fun aiSummarize(lit: Literature) {
+    /** 提取摘要（直接从PDF文本提取，不需要AI） */
+    fun extractSummary(lit: Literature) {
         viewModelScope.launch {
             isLoading = true
             aiResult = ""
-            val text = if (lit.abstract.isNotBlank()) lit.abstract
-            else withContext(Dispatchers.IO) { extractFullText(lit) }
-
-            if (text.isBlank()) {
-                aiResult = "无法提取文本内容"
-                isLoading = false
-                return@launch
-            }
-
             val result = withContext(Dispatchers.IO) {
-                callAI("请用中文对以下学术论文内容进行摘要总结，提取核心观点、方法和结论（300字以内）：\n\n${text.take(4000)}")
+                // 优先用已有摘要
+                if (lit.abstract.isNotBlank()) return@withContext "【摘要】\n${lit.abstract}"
+
+                // 从PDF提取
+                val text = extractFullText(lit)
+                if (text.isBlank()) return@withContext "无法提取文本（PDF可能是扫描件）"
+
+                // 尝试找到 Abstract 段落
+                val abstractRegex = Regex("""(?i)(abstract|摘\s*要)[:\s：]*(.{50,2000})""", RegexOption.DOT_MATCHES_ALL)
+                val match = abstractRegex.find(text)
+                if (match != null) {
+                    "【摘要】\n${match.groupValues[2].trim().take(1000)}"
+                } else {
+                    // 取前500字作为概要
+                    "【文档前文】\n${text.take(800).trim()}"
+                }
             }
             aiResult = result
             isLoading = false
         }
     }
 
-    fun aiTranslate(text: String, targetLang: String = "中文") {
-        viewModelScope.launch {
-            isLoading = true
-            aiResult = ""
-            val result = withContext(Dispatchers.IO) {
-                callAI("请将以下学术文本翻译为${targetLang}，保持学术用语的准确性：\n\n${text.take(3000)}")
-            }
-            aiResult = result
-            isLoading = false
-        }
+    fun aiSummarize(lit: Literature) {
+        extractSummary(lit) // 直接用提取方式，不调AI
     }
 
     fun aiFindRelated(lit: Literature) {
         viewModelScope.launch {
             isLoading = true
             aiResult = ""
-            val keywords = (lit.keywords + lit.tags).joinToString(", ")
+            // 优先用 OpenAlex 搜索相关文献（不需要AI API）
             val result = withContext(Dispatchers.IO) {
-                callAI("基于以下论文信息，推荐5篇相关文献（给出标题、作者、年份、期刊）：\n标题: ${lit.title}\n摘要: ${lit.abstract.take(500)}\n关键词: $keywords")
+                try {
+                    val query = lit.title.take(100)
+                    val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+                    val url = "https://api.openalex.org/works?search=$encoded&per_page=8&sort=relevance_score:desc&mailto=psymap@example.com"
+                    val request = okhttp3.Request.Builder().url(url).build()
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+                    val response = client.newCall(request).execute()
+                    val json = response.body?.string() ?: return@withContext "网络请求失败"
+                    val map = gson.fromJson(json, Map::class.java)
+                    val results = (map["results"] as? List<*>) ?: return@withContext "解析失败"
+
+                    if (results.isEmpty()) return@withContext "未找到相关文献"
+
+                    val sb = StringBuilder("【相关文献推荐】\n\n")
+                    results.forEachIndexed { idx, item ->
+                        val work = item as? Map<*, *> ?: return@forEachIndexed
+                        val title = (work["title"] as? String) ?: return@forEachIndexed
+                        val year = (work["publication_year"] as? Double)?.toInt()?.let { if (it in 1800..2030) it else null }
+                        val doi = (work["doi"] as? String)?.removePrefix("https://doi.org/") ?: ""
+                        val authorships = (work["authorships"] as? List<*>) ?: emptyList<Any>()
+                        val authors = authorships.take(3).mapNotNull { a ->
+                            val auth = (a as? Map<*, *>)?.get("author") as? Map<*, *>
+                            auth?.get("display_name")?.toString()
+                        }.joinToString(", ")
+                        val primaryLocation = work["primary_location"] as? Map<*, *>
+                        val source = primaryLocation?.get("source") as? Map<*, *>
+                        val journal = source?.get("display_name")?.toString() ?: ""
+
+                        sb.append("${idx + 1}. $title\n")
+                        if (authors.isNotBlank()) sb.append("   作者: $authors\n")
+                        if (journal.isNotBlank()) sb.append("   期刊: $journal")
+                        if (year != null) sb.append(" ($year)")
+                        sb.append("\n")
+                        if (doi.isNotBlank()) sb.append("   DOI: $doi\n")
+                        sb.append("\n")
+                    }
+                    sb.toString()
+                } catch (e: Exception) {
+                    "查找相关文献失败: ${e.message}"
+                }
             }
             aiResult = result
             isLoading = false
