@@ -83,7 +83,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     private fun syncToCloud(block: suspend () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                Log.d("PsyMap-Sync", "syncToCloud started")
+                Log.d("PsyMap-Sync", "syncToCloud started [v2fix]")
                 block()
                 Log.d("PsyMap-Sync", "syncToCloud completed")
             } catch (e: Exception) {
@@ -419,9 +419,12 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
     fun syncFromCloud() {
         cloudSyncing = true
         cloudSyncMessage = ""
+        Log.d("PsyMap-Sync", "syncFromCloud started, userId=${SupabaseClient.userId}")
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                Log.d("PsyMap-Sync", "calling pullAll()...")
                 val data = SupabaseClient.pullAll()
+                Log.d("PsyMap-Sync", "pullAll done: banks=${data.banks.size}, questions=${data.questions.size}, checkIns=${data.checkIns.size}, dailyTargets=${data.dailyTargets.size}")
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     // 清理旧版遗留的特殊 bank（__mindmap__ / __audio__）
                     questionBanks = questionBanks.filter { !it.id.startsWith("__") }
@@ -430,13 +433,16 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
 
                     // 判断是否为全新安装（本地无用户数据）
                     val isFreshInstall = questions.isEmpty() && checkInRecords.isEmpty()
+                    Log.d("PsyMap-Sync", "isFreshInstall=$isFreshInstall, localQuestions=${questions.size}, localCheckIns=${checkInRecords.size}")
 
                     if (isFreshInstall && data.banks.isNotEmpty()) {
+                        Log.d("PsyMap-Sync", "Fresh install branch: replacing local with cloud data")
                         // 全新安装：直接用云端数据替换本地
                         questionBanks = data.banks
                         saveBanks()
                         questions = data.questions
                         saveQuestions()
+                        Log.d("PsyMap-Sync", "Saved ${data.banks.size} banks, ${data.questions.size} questions")
                         if (data.checkIns.isNotEmpty()) {
                             checkInRecords = data.checkIns.sortedByDescending { it.date }
                             saveCheckIns()
@@ -451,8 +457,11 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                             cloudIds.add(cq.id)
                             val lq = localQMap[cq.id]
                             if (lq == null) {
-                                // 云端有但本地没有：可能是本地已删除，不再自动恢复
-                                // 只有全新安装时才添加（由上面的 isFreshInstall 分支处理）
+                                // 云端有但本地没有：如果本地几乎为空（全新安装漏判），添加云端数据
+                                if (localQMap.size < 10) {
+                                    mergedQuestions.add(cq)
+                                }
+                                // 否则视为本地已删除，不恢复
                             } else {
                                 // 以云端 bankId 为准，学习进度取较大值
                                 mergedQuestions.add(cq.copy(
@@ -551,14 +560,16 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     lastPushedHash = localDataHash
 
                     // 合并后推送回云端（确保云端也有本地独有的数据）
-                    // 同时删除云端多余的题目（本地已删除的）
+                    // 注意：全新安装时不删除云端数据（防止误删）
                     syncToCloud {
-                        // 找出云端有但本地没有的题目ID → 从云端删除
+                        // 只有本地题目数量 > 云端的 50% 时才执行删除（防止全新安装误删）
                         val localIds = questions.map { it.id }.toSet()
                         val cloudOnlyIds = data.questions.map { it.id }.filter { it !in localIds }
-                        if (cloudOnlyIds.isNotEmpty()) {
+                        if (cloudOnlyIds.isNotEmpty() && localIds.size > data.questions.size / 2) {
                             SupabaseClient.deleteQuestions(cloudOnlyIds)
                             Log.d("PsyMap-Sync", "从云端删除 ${cloudOnlyIds.size} 道本地已删除的题目")
+                        } else if (cloudOnlyIds.isNotEmpty()) {
+                            Log.d("PsyMap-Sync", "跳过云端删除：本地${localIds.size}题 vs 云端${data.questions.size}题，疑似全新安装")
                         }
                         SupabaseClient.pushAll(
                             questionBanks, questions, checkInRecords, dailyTargets,
@@ -569,6 +580,7 @@ class PsyMapViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (e: Exception) {
+                Log.e("PsyMap-Sync", "syncFromCloud EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     cloudSyncing = false
                     cloudSyncMessage = "同步失败: ${e.message}"

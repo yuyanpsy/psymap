@@ -18,7 +18,11 @@ object SupabaseClient {
     var supabaseUrl = "https://edzsmjegnkrbedqpotgu.supabase.co"
     var supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkenNtamVnbmtyYmVkcXBvdGd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMDA5NDcsImV4cCI6MjA5MTg3Njk0N30.J1gHxRiRgEBSMtd3WwhmkwiO2bIpNJy2LDsphD0SPQU"
 
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
     private val gson = Gson()
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -40,14 +44,23 @@ object SupabaseClient {
     }
 
     private suspend fun get(table: String, query: String = ""): String? = withContext(Dispatchers.IO) {
+        val url = buildUrl(table, query)
         val request = Request.Builder()
-            .url(buildUrl(table, query))
+            .url(url)
             .headers(baseHeaders())
             .get()
             .build()
         try {
-            client.newCall(request).execute().use { it.body?.string() }
-        } catch (e: Exception) { null }
+            val resp = client.newCall(request).execute()
+            val body = resp.use { it.body?.string() }
+            if (!resp.isSuccessful) {
+                Log.e("PsyMap-Sync", "GET $table FAILED: code=${resp.code}, body=${body?.take(200)}")
+            }
+            body
+        } catch (e: Exception) {
+            Log.e("PsyMap-Sync", "GET $table EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
     }
 
     private suspend fun post(table: String, json: String, query: String = ""): String? = withContext(Dispatchers.IO) {
@@ -242,7 +255,12 @@ object SupabaseClient {
         var offset = 0
         val pageSize = 1000
         while (true) {
-            val json = get("questions", "?user_id=eq.$uid&limit=$pageSize&offset=$offset") ?: break
+            Log.d("PsyMap-Sync", "fetchQuestions page offset=$offset")
+            val json = get("questions", "?user_id=eq.$uid&limit=$pageSize&offset=$offset")
+            if (json == null) {
+                Log.e("PsyMap-Sync", "fetchQuestions got null at offset=$offset")
+                break
+            }
             val list = try {
                 gson.fromJson<List<Map<String, Any>>>(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
             } catch (e: Exception) { break }
