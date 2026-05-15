@@ -339,6 +339,12 @@ fun ProfilePage(vm: PsyMapViewModel) {
     if (showVersionInfo) {
         var checking by remember { mutableStateOf(false) }
         var updateMsg by remember { mutableStateOf("") }
+        // 从 PackageInfo 动态读取当前版本号，避免每次发版漏改
+        val currentVersion = remember {
+            try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+            } catch (e: Exception) { "" }
+        }
         AlertDialog(
             onDismissRequest = { showVersionInfo = false },
             title = { Text("版本信息") },
@@ -352,7 +358,7 @@ fun ProfilePage(vm: PsyMapViewModel) {
                     Spacer(Modifier.height(12.dp))
                     Text("羽言心理", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("当前版本: v0.1.1", fontSize = 14.sp, color = Color.Gray)
+                    Text("当前版本: v$currentVersion", fontSize = 14.sp, color = Color.Gray)
                     Spacer(Modifier.height(16.dp))
                     if (checking) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -378,10 +384,9 @@ fun ProfilePage(vm: PsyMapViewModel) {
                                 val map = com.google.gson.Gson().fromJson<Map<String, Any>>(json, object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type)
                                 val latestVersion = (map["versionName"] as? String) ?: (map["version"] as? String) ?: ""
                                 val downloadUrl = (map["downloadUrl"] as? String) ?: (map["url"] as? String) ?: ""
-                                val currentVersion = "0.1.1"
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     checking = false
-                                    if (latestVersion.isNotBlank() && latestVersion != currentVersion) {
+                                    if (latestVersion.isNotBlank() && isVersionNewer(latestVersion, currentVersion)) {
                                         updateMsg = "发现新版本: v$latestVersion"
                                         if (downloadUrl.isNotBlank()) {
                                             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl)))
@@ -764,4 +769,18 @@ fun PermissionsDialog(vm: PsyMapViewModel, onDismiss: () -> Unit) {
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
     )
+}
+
+/** 比较语义化版本，判断 [latest] 是否严格大于 [current]。 */
+private fun isVersionNewer(latest: String, current: String): Boolean {
+    if (latest.isBlank() || current.isBlank()) return false
+    val a = latest.trim().trimStart('v', 'V').split(".")
+    val b = current.trim().trimStart('v', 'V').split(".")
+    val len = maxOf(a.size, b.size)
+    for (i in 0 until len) {
+        val ai = a.getOrNull(i)?.toIntOrNull() ?: 0
+        val bi = b.getOrNull(i)?.toIntOrNull() ?: 0
+        if (ai != bi) return ai > bi
+    }
+    return false
 }

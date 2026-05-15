@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "0.1.1",
-  "downloadUrl": "https://github.com/yuyanpsy/psymap/releases/download/v0.1.1/app-debug.apk",
-  "changelog": "题目排序优化、OCR识别增强、Markdown格式化、底部按钮修复、思维导图改进、Web端同步"
+  "versionCode": 10,
+  "versionName": "0.2.0",
+  "downloadUrl": "https://github.com/yuyanpsy/psymap/releases/download/v0.2.0/app-debug.apk",
+  "changelog": "v0.2.0：文献管理、文档工具PDF↔图片、题库筛选学习、智选基金优化、云同步多账号修复"
 }
